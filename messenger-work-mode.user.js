@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.2.0
+// @version      1.3.0
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -133,8 +133,7 @@ html.gms-on .gms-main {
   --divider: #e0e0e0; --media-inner-border: #e0e0e0;
 }
 html.gms-on:not(.gms-thread) .gms-main { visibility: hidden !important; }
-html.gms-on.gms-thread .gms-main { clip-path: inset(100% 0 0 0) !important; }
-html.gms-on.gms-thread.gms-reply .gms-main { clip-path: inset(calc(100% - var(--gms-reply-h)) 0 0 0) !important; }
+html.gms-on.gms-thread .gms-main { clip-path: inset(100% 0 0 0) !important; pointer-events: none !important; }
 html.gms-on .gms-main * { font-family: inherit !important; }
 html.gms-on .gms-unx {
   transform: none !important; filter: none !important; perspective: none !important;
@@ -399,7 +398,6 @@ a { color: inherit; text-decoration: none; }
   overflow-y: auto; pointer-events: auto; display: none;
 }
 :host(.gms-thread) .gms-conv { display: block; }
-:host(.gms-thread.gms-reply) .gms-conv { bottom: var(--gms-reply-h); border-radius: 0; }
 .gms-conv-in { padding: 0 24px 32px 72px; }
 
 .gms-sum {
@@ -446,6 +444,20 @@ a { color: inherit; text-decoration: none; }
 .gms-rb.round { width: 40px; padding: 0; justify-content: center; }
 .gms-rb:hover { background: #f6f8fc; }
 .gms-rb .gms-ico { width: 20px; height: 20px; }
+
+:host(.gms-reply) .gms-replybar { display: none; }
+.gms-replybox { display: none; margin: 0 24px 32px 72px; padding: 12px 16px; border: 1px solid #c4c7c5; border-radius: 16px; background: #fff; box-shadow: 0 1px 3px rgba(60,64,67,.2); }
+:host(.gms-reply) .gms-replybox { display: block; }
+.gms-replyto { font-size: 12px; color: #5e5e5e; margin-bottom: 8px; }
+.gms-replybox textarea { display: block; width: 100%; min-height: 72px; max-height: 240px; resize: vertical; border: 0; outline: 0; background: transparent; font: 400 14px/20px var(--md-font-plain); color: #1f1f1f; }
+.gms-replybar2 { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.gms-send { height: 36px; padding: 0 24px; border-radius: 18px; background: #0b57d0; color: #fff; font: 500 14px/20px var(--md-font-brand); }
+.gms-send:hover { box-shadow: 0 1px 2px rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15); }
+.gms-media { display: inline-block; position: relative; margin: 4px 8px 8px 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: #f1f3f4; vertical-align: top; }
+.gms-media img { display: block; max-width: 320px; max-height: 260px; object-fit: cover; }
+.gms-media.vid .gms-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.25); color: #fff; }
+.gms-media.vid .gms-play .gms-ico { width: 48px; height: 48px; }
+.gms-media.nopost { width: 240px; height: 140px; background: #444746; }
 `;
 
   const addPageCss = (css) => {
@@ -561,6 +573,7 @@ a { color: inherit; text-decoration: none; }
     reply: 'M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z',
     forward: 'M12 8V4l8 8-8 8v-4H4V8z',
     mood: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z',
+    play: 'M8 5v14l11-7z',
   };
 
   GMS.ico = (name, cls = '') =>
@@ -863,7 +876,17 @@ a { color: inherit; text-decoration: none; }
       ${ib('Trong cửa sổ mới', 'open')}
     </div>
   </div>
-  <div class="gms-conv" id="gms-conv"><div class="gms-conv-in" id="gms-conv-in"></div></div>
+  <div class="gms-conv" id="gms-conv"><div class="gms-conv-in" id="gms-conv-in"></div>
+    <div class="gms-replybox">
+      <div class="gms-replyto" id="gms-replyto"></div>
+      <textarea id="gms-reply-text" placeholder="Nhập nội dung trả lời" spellcheck="false"></textarea>
+      <div class="gms-replybar2">
+        <button class="gms-send" data-act="send">Gửi</button>
+        <div class="gms-spacer"></div>
+        ${ib('Hủy bản nháp', 'del', { act: 'discard' })}
+      </div>
+    </div>
+  </div>
 </div>`;
 
     const q = (sel) => ui.shell.querySelector(sel);
@@ -944,9 +967,21 @@ a { color: inherit; text-decoration: none; }
       reply() {
         state.reply = true;
         GMS.applyClasses();
-        setTimeout(() => { const sc = q('#gms-conv'); sc.scrollTop = sc.scrollHeight; GMS.focusComposer(); }, 80);
+        const to = q('#gms-replyto');
+        if (to) to.textContent = 'đến ' + ((state.current && state.current.name) || '');
+        setTimeout(() => { const sc = q('#gms-conv'); sc.scrollTop = sc.scrollHeight; q('#gms-reply-text').focus(); }, 60);
       },
       forward() { ACTIONS.reply(); },
+      discard() { q('#gms-reply-text').value = ''; state.reply = false; GMS.applyClasses(); },
+      send() {
+        const ta = q('#gms-reply-text');
+        const text = ta.value.trim();
+        if (!text) return;
+        if (GMS.sendMessage(text)) {
+          ta.value = ''; state.reply = false; state.stickUntil = Date.now() + 4000;
+          GMS.applyClasses();
+        }
+      },
     };
 
     function onShellClick(e) {
@@ -963,6 +998,9 @@ a { color: inherit; text-decoration: none; }
 
       const f = e.target.closest('[data-folder]');
       if (f) { e.preventDefault(); state.folder = f.dataset.folder; GMS.setMode('list'); GMS.render(true); return; }
+
+      const med = e.target.closest('[data-mi]');
+      if (med) { e.stopPropagation(); GMS.peekMedia(+med.dataset.mi); return; }
 
       const msg = e.target.closest('.gms-msg[data-i]');
       if (msg) {
@@ -982,6 +1020,12 @@ a { color: inherit; text-decoration: none; }
     }
 
     function onShellKey(e) {
+      if (e.target.id === 'gms-reply-text') {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ACTIONS.send(); }
+        else if (e.key === 'Escape') { e.preventDefault(); ACTIONS.discard(); }
+        e.stopPropagation();
+        return;
+      }
       if (e.key !== 'Enter' && e.key !== ' ') return;
       const row = e.target.closest?.('.gms-row');
       if (row && e.target === row) { e.preventDefault(); openThread(row.dataset.path); }
@@ -1028,8 +1072,11 @@ a { color: inherit; text-decoration: none; }
       return `<span class="gms-av${out ? ' me' : ''}">${esc(letter)}</span>`;
     }
 
+    const mediaHtml = (g) => (g.media || []).map((md) =>
+      `<span class="gms-media${md.vid ? ' vid' : ''}${md.vid && !md.src ? ' nopost' : ''}" data-mi="${md.i}" title="Mở bản gốc">${md.src ? `<img src="${esc(md.src)}" alt="" referrerpolicy="no-referrer">` : ''}${md.vid ? `<span class="gms-play">${ico('play')}</span>` : ''}</span>`).join('');
+
     function closedMsg(x, i, them) {
-      return `<div class="gms-msg" data-i="${i}">${avatar(x.out)}<div class="gms-msg-b"><div class="gms-msg-n">${esc(nameOf(x, them))}</div><div class="gms-msg-s">${esc(x.text.replace(/\s+/g, ' '))}</div></div><span class="gms-msg-t">${esc(x.time)}</span><span class="gms-mstar">${ico('star_border')}</span></div>`;
+      return `<div class="gms-msg" data-i="${i}">${avatar(x.out)}<div class="gms-msg-b"><div class="gms-msg-n">${esc(nameOf(x, them))}</div><div class="gms-msg-s">${esc((x.text || '[Hình ảnh / video]').replace(/\s+/g, ' '))}</div></div><span class="gms-msg-t">${esc(x.time)}</span><span class="gms-mstar">${ico('star_border')}</span></div>`;
     }
 
     function openMsg(group, i, them, email, prev) {
@@ -1044,7 +1091,7 @@ a { color: inherit; text-decoration: none; }
       return `<div class="gms-msg open" data-i="${i}"${prev ? ' data-fixed="1"' : ''}>${avatar(x.out)}<div class="gms-msg-b">
 <div class="gms-msg-top"><span class="gms-msg-n">${esc(nameOf(x, them))}</span><span class="gms-msg-e">&lt;${esc(mail)}&gt;</span><span class="gms-spacer"></span><span class="gms-msg-t">${esc(group[group.length - 1].time)}</span></div>
 <div class="gms-msg-to">đến ${x.out ? esc(them) : 'tôi'} ▾</div>
-<div class="gms-msg-body">${group.map((g) => `<div>${linkify(g.text)}</div>`).join('')}</div>${quote}
+<div class="gms-msg-body">${group.map((g) => `<div>${g.text ? linkify(g.text) : ''}${mediaHtml(g)}</div>`).join('')}</div>${quote}
 </div></div>`;
     }
 
@@ -1099,6 +1146,7 @@ a { color: inherit; text-decoration: none; }
 
     // ---------- mở đoạn chat / soạn thư / chuyển chế độ ----------
     function openThread(path) {
+      const rt = q('#gms-reply-text'); if (rt) rt.value = '';
       state.reply = false; state.expanded.clear(); state.lastConv = '';
       state.stickUntil = Date.now() + 2500; GMS.msgs = [];
       const t = state.threads.find((x) => x.path === path) || { path, name: '' };
@@ -1270,39 +1318,115 @@ a { color: inherit; text-decoration: none; }
 
     const TIME_IN = /(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*$/i;
     const SEP_OK = /^[\p{L}\d\s,.:/-]{3,40}$/u;
+    // Chữ ẩn dành cho trình đọc màn hình: "Nhập, Tin nhắn do Bạn gửi lúc 09:59: ..."
+    const ACC_RE = /^(?:(?:Nhập|Enter)\s*[,.]\s*)?(?:Tin nhắn do .{1,60}? gửi lúc|Message (?:sent|from) .{1,60}? (?:at|sent at))\s*(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*:\s*/i;
+
+    GMS.mediaEls = [];
+    GMS.peek = { on: false, seen: false, at: 0 };
 
     GMS.focusComposer = () => {
       const m = document.querySelector('.gms-main');
       if (m) textbox(m)?.focus();
     };
 
-    // Đọc các bong bóng chat (đã được gắn class gms-bubble) thành danh sách tin nhắn.
+    // Gõ chữ vào ô nhập thật của Messenger rồi nhấn Enter.
+    GMS.sendMessage = (text) => {
+      const m = document.querySelector('.gms-main');
+      const tb = m && textbox(m);
+      if (!tb) return false;
+      tb.focus();
+      document.execCommand('selectAll', false);
+      document.execCommand('delete', false);
+      text.split('\n').forEach((line, i) => {
+        if (i) document.execCommand('insertLineBreak', false);
+        if (line) document.execCommand('insertText', false, line);
+      });
+      setTimeout(() => {
+        const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+        tb.dispatchEvent(new KeyboardEvent('keydown', ev));
+        tb.dispatchEvent(new KeyboardEvent('keyup', ev));
+        setTimeout(() => { // dự phòng: ô vẫn còn chữ thì bấm nút gửi
+          if (!(tb.textContent || '').trim()) return;
+          const btn = [...m.querySelectorAll('[aria-label]')].find((x) =>
+            /^(nhấn enter để gửi|press enter to send|gửi|send)$/i.test(x.getAttribute('aria-label')));
+          btn?.click();
+        }, 400);
+      }, 80);
+      return true;
+    };
+
+    // Mở trình xem hình/video gốc của Messenger (khung Gmail tạm ẩn).
+    GMS.peekMedia = (i) => {
+      const el = GMS.mediaEls[i];
+      if (!el) return;
+      GMS.peek = { on: true, seen: false, at: Date.now() };
+      el.click();
+    };
+
     GMS.readMessages = (m) => {
       const cur = GMS.state.current;
       const norm = (s) => s.replace(/\/$/, '');
       if (cur && cur.path && !norm(location.pathname).endsWith(norm(cur.path))) return [];
+      const mr = m.getBoundingClientRect();
+      const mid = mr.left + mr.width / 2;
       const items = [];
+      GMS.mediaEls = [];
+
       for (const b of m.querySelectorAll('.gms-bubble')) {
         if (b.closest('[contenteditable="true"]') || b.parentElement.closest('.gms-bubble')) continue;
         const r = b.getBoundingClientRect();
         if (r.width < 1) continue;
         const leaves = [...b.querySelectorAll('[dir="auto"]')].filter((x) => !x.querySelector('[dir="auto"]'));
-        const text = (leaves.length ? leaves.map((x) => x.textContent.trim()) : [b.textContent.trim()])
-          .filter(Boolean).join('\n');
-        if (text) items.push({ top: r.top, out: b.classList.contains('gms-out'), text });
+        const raw = leaves.length ? leaves.map((x) => x.textContent.trim()) : [b.textContent.trim()];
+        const lines = [];
+        let own = '';
+        for (const x of raw) {
+          if (!x) continue;
+          const mt = ACC_RE.exec(x);
+          let t = x;
+          if (mt) { own = GMS.toDateLabel(mt[1]); t = x.slice(mt[0].length).trim(); }
+          if (t && t !== lines[lines.length - 1]) lines.push(t);
+        }
+        const text = lines.join('\n');
+        if (text) items.push({ top: r.top, out: b.classList.contains('gms-out'), text, own });
       }
+
+      const seen = new Set();
+      for (const el of m.querySelectorAll('img, video')) {
+        if (el.closest('[contenteditable="true"]')) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 80 || r.height < 60) continue;
+        const half = Math.min(r.width, r.height) / 2 - 1;
+        if (parseFloat(getComputedStyle(el).borderTopLeftRadius) >= half ||
+            (el.parentElement && parseFloat(getComputedStyle(el.parentElement).borderTopLeftRadius) >= half)) continue; // ảnh đại diện tròn
+        const vid = el.tagName === 'VIDEO';
+        const src = vid ? (el.poster || '') : (el.currentSrc || el.src || '');
+        if (!vid && (!src || src.startsWith('data:') || /emoji|rsrc\.php/.test(src))) continue;
+        const key = src || 'v' + Math.round(r.top);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        GMS.mediaEls.push(el);
+        items.push({
+          top: r.top,
+          out: r.left + r.width / 2 > mid && r.right > mr.right - mr.width * 0.25,
+          media: { vid, src, i: GMS.mediaEls.length - 1 },
+        });
+      }
+
       for (const el of m.querySelectorAll('[dir="auto"]')) {
         if (el.querySelector('[dir="auto"]') || el.closest('.gms-bubble') || el.closest('[contenteditable="true"]')) continue;
         const t = (el.textContent || '').trim();
         const mt = SEP_OK.test(t) && TIME_IN.exec(t);
         if (mt) items.push({ top: el.getBoundingClientRect().top, time: GMS.toDateLabel(mt[1]) });
       }
+
       items.sort((a, b) => a.top - b.top);
       const msgs = [];
       let time = '';
       for (const it of items) {
-        if (it.text === undefined) time = it.time;
-        else msgs.push({ out: it.out, text: it.text, time });
+        if (it.media) msgs.push({ out: it.out, text: '', time, media: [it.media] });
+        else if (it.text === undefined) time = it.time;
+        else msgs.push({ out: it.out, text: it.text, time: it.own || time });
       }
       return msgs;
     };
@@ -1409,6 +1533,13 @@ a { color: inherit; text-decoration: none; }
       if (!GMS.active()) return;
       forceLight();
       if (!GMS.ensureShell()) return;
+      const pk = GMS.peek;
+      if (pk && pk.on) {
+        const dlg = !!document.querySelector('[role="dialog"]');
+        if (dlg) pk.seen = true;
+        if (!dlg && (pk.seen || Date.now() - pk.at > 2500)) pk.on = false;
+      }
+      GMS.ui.host.style.visibility = pk && pk.on ? 'hidden' : '';
       const m = GMS.applyMain();
       GMS.scan();
       if (state.mode === 'thread') { GMS.styleThread(m); GMS.msgs = m ? GMS.readMessages(m) : []; }
