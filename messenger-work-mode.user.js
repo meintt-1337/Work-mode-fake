@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.4.0
+// @version      1.4.1
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -743,9 +743,22 @@ a { color: inherit; text-decoration: none; }
       }
     }
 
+    // [Tối ưu B] Cache kết quả parse: chỉ parse lại khi chữ của đoạn chat đổi.
+    let parseCache = new WeakMap();
+    GMS.resetScanCache = () => { parseCache = new WeakMap(); };
+
     GMS.scan = () => {
       const links = GMS.threadLinks();
-      state.threads = links.map(parseLink).sort((x, y) => x.top - y.top);
+      state.threads = links.map((l) => {
+        const sig = l.a.textContent + '|' + (l.a.getAttribute('aria-label') || '');
+        let c = parseCache.get(l.a);
+        if (!c || c.sig !== sig || c.path !== l.path) {
+          c = { sig, path: l.path, data: parseLink(l) };
+          parseCache.set(l.a, c);
+        }
+        c.data.top = l.a.getBoundingClientRect().top;
+        return c.data;
+      }).sort((x, y) => x.top - y.top);
       hideMessengerList(links);
       return state.threads;
     };
@@ -977,7 +990,7 @@ a { color: inherit; text-decoration: none; }
       },
       menu() { state.collapsedManual = !state.collapsedManual; GMS.applyClasses(); },
       back() { GMS.setMode('list'); },
-      refresh() { GMS.scan(); GMS.render(true); q('#gms-scroll').scrollTop = 0; },
+      refresh() { GMS.resetScanCache(); GMS.scan(); GMS.render(true); q('#gms-scroll').scrollTop = 0; },
       older() { GMS.loadMore(); },
       compose() { compose(); },
       checkall() {
@@ -1152,12 +1165,15 @@ a { color: inherit; text-decoration: none; }
     GMS.render = (force = false) => {
       if (!ui.shell) return;
       const list = visibleThreads();
-      const html = list.length
-        ? list.map(rowHtml).join('')
-        : `<div class="gms-empty">${state.query ? 'Không có thư nào khớp với tìm kiếm của bạn.' : EMPTY[state.folder] || EMPTY.inbox}</div>`;
-      if (force || html !== state.lastHtml) {
-        GMS.setHtml(q('#gms-rows'), html);
-        state.lastHtml = html;
+      // [Tối ưu C] Đang đọc thread thì không dựng lại HTML cả danh sách mỗi tick.
+      if (state.mode === 'list' || force) {
+        const html = list.length
+          ? list.map(rowHtml).join('')
+          : `<div class="gms-empty">${state.query ? 'Không có thư nào khớp với tìm kiếm của bạn.' : EMPTY[state.folder] || EMPTY.inbox}</div>`;
+        if (force || html !== state.lastHtml) {
+          GMS.setHtml(q('#gms-rows'), html);
+          state.lastHtml = html;
+        }
       }
       const unread = state.threads.filter((t) => t.unread).length;
       q('[data-count="inbox"]').textContent = unread ? fmtN(unread) : '';
@@ -1200,7 +1216,7 @@ a { color: inherit; text-decoration: none; }
       if (m === 'list') state.reply = false;
       state.mode = m;
       GMS.applyClasses();
-      if (m === 'thread') setTimeout(GMS.tick, 300);
+      if (m === 'thread') setTimeout(GMS.tick, 300); else GMS.render(true);
     };
 
     const STATE_CLASSES = ['gms-thread', 'gms-collapsed', 'gms-reply'];
@@ -1350,7 +1366,8 @@ a { color: inherit; text-decoration: none; }
     const SEP_OK = /^[\p{L}\d\s,.:/-]{3,40}$/u;
     // Chữ ẩn dành cho trình đọc màn hình: "Nhập, Tin nhắn do Bạn gửi lúc 09:59: ..."
     // Nhóm 1/2 = người gửi (Bạn / You / tên người kia), nhóm 3 = giờ.
-    const ACC_RE = /^(?:(?:Nhập|Enter)\s*[,.]\s*)?(?:Tin nhắn do (.{1,80}?) gửi lúc|Message (?:sent )?(?:by|from) (.{1,80}?) (?:at|sent at))\s*(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*:\s*/i;
+    // Dấu ":" là tùy chọn: tin chỉ có ảnh/video/sticker thì nhãn kết thúc ngay sau giờ.
+    const ACC_RE = /^(?:(?:Nhập|Enter)\s*[,.]\s*)?(?:Tin nhắn do (.{1,80}?) gửi lúc|Message (?:sent )?(?:by|from) (.{1,80}?) (?:at|sent at))\s*(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*(?::\s*|[.,]?\s*$)/i;
     const SELF_RE = /^(bạn|you)$/i;
 
     GMS.mediaEls = [];
@@ -1438,15 +1455,24 @@ a { color: inherit; text-decoration: none; }
         const lines = [];
         let who = null;
         let own = '';
+        let att = false;
         for (const x of raw) {
           if (!x) continue;
           const mt = ACC_RE.exec(x);
           let t = x;
-          if (mt) { who = (mt[1] || mt[2] || '').trim(); own = GMS.toDateLabel(mt[3]); t = x.slice(mt[0].length).trim(); }
+          if (mt) {
+            who = (mt[1] || mt[2] || '').trim();
+            own = GMS.toDateLabel(mt[3]);
+            t = x.slice(mt[0].length).trim();
+            if (!t) att = true; // tin chỉ có ảnh/video/sticker
+          }
           if (t && t !== lines[lines.length - 1]) lines.push(t);
         }
         const text = lines.join('\n');
-        if (!text) continue;
+        if (!text) {
+          if (att) acc.push({ top: r.top, out: SELF_RE.test(who), text: '', own, att: true });
+          continue;
+        }
         if (who !== null) acc.push({ top: r.top, out: SELF_RE.test(who), text, own });
         else plain.push({ top: r.top, out: r.left + r.width / 2 > mid && r.right > mr.right - mr.width * 0.25, text });
       }
@@ -1470,7 +1496,7 @@ a { color: inherit; text-decoration: none; }
       // 3) Hình / video
       const seen = new Set();
       for (const el of m.querySelectorAll('img, video')) {
-        if (el.closest('[contenteditable="true"]')) continue;
+        if (el.closest('[contenteditable="true"]') || el.closest('.gms-composer')) continue;
         const r = el.getBoundingClientRect();
         if (r.width < 80 || r.height < 60) continue;
         const half = Math.min(r.width, r.height) / 2 - 1;
@@ -1500,10 +1526,25 @@ a { color: inherit; text-decoration: none; }
       }
 
       items.sort((a, b) => a.top - b.top);
+
+      // Gắn mỗi ảnh với nhãn "tin nhắn ảnh" gần nhất phía trên nó
+      const atts = items.filter((i) => i.att);
+      for (const md of items) {
+        if (!md.media) continue;
+        let best = null;
+        for (const a of atts) if (a.top <= md.top + 20 && (!best || a.top > best.top)) best = a;
+        if (best) best.hasMedia = true;
+      }
+
       const msgs = [];
       let time = '';
       for (const it of items) {
         if (it.media) msgs.push({ out: it.out, text: '', time, media: [it.media] });
+        else if (it.att) {
+          time = it.own || time;
+          // Không tìm thấy ảnh -> hiện placeholder thay vì nhãn thô
+          if (!it.hasMedia) msgs.push({ out: it.out, text: '[Hình ảnh / video]', time });
+        }
         else if (it.text === undefined) time = it.time;
         else msgs.push({ out: it.out, text: it.text, time: it.own || time });
       }
@@ -1669,6 +1710,19 @@ a { color: inherit; text-decoration: none; }
       GM_registerMenuCommand('Bật / tắt icon Gmail trên tab', () => saveSettings({ favicon: !settings.favicon }));
       GM_registerMenuCommand('Ẩn / hiện thanh tên trong đoạn chat', () => saveSettings({ hideThreadHeader: !settings.hideThreadHeader }));
       GM_registerMenuCommand('Ép khung chat sang nền sáng (bật / tắt)', () => saveSettings({ forceLight: !settings.forceLight }));
+      GM_registerMenuCommand('Debug: in thông tin ảnh/video trong chat', () => {
+        const m = document.querySelector('.gms-main');
+        if (!m) return console.log('[GMS] chưa có .gms-main');
+        console.table([...m.querySelectorAll('img, video')].map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            tag: el.tagName, w: Math.round(r.width), h: Math.round(r.height),
+            radius: getComputedStyle(el).borderTopLeftRadius,
+            parentRadius: el.parentElement && getComputedStyle(el.parentElement).borderTopLeftRadius,
+            src: (el.currentSrc || el.src || el.poster || '').slice(0, 120),
+          };
+        }));
+      });
     }
 
     if (typeof GM_addValueChangeListener === 'function') {
@@ -1722,7 +1776,9 @@ a { color: inherit; text-decoration: none; }
       refresh();
       if (bootTimer) clearTimeout(bootTimer);
       root.classList.remove('gms-boot');
-      if (!tickTimer) tickTimer = setInterval(() => { if (GMS.active()) GMS.tick(); }, 700);
+      // [Tối ưu A] Không chạy khi tab bị ẩn, giãn chu kỳ lên 1000ms.
+      if (!tickTimer) tickTimer = setInterval(() => { if (GMS.active() && !document.hidden) GMS.tick(); }, 1000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
     };
     if (document.body) start();
     else document.addEventListener('DOMContentLoaded', start, { once: true });
