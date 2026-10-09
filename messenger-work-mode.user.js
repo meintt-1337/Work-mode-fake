@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Work Mode Fake
-// @namespace    https://github.com/meintt-1337//Work-mode-fake
+// @namespace    https://github.com/meintt-1337/Work-mode-fake
 // @version      1.0.0
 // @description  Khoác giao diện hộp thư lên Messenger web
 // @match        https://www.messenger.com/*
@@ -9,6 +9,6 @@
 // @run-at       document-start
 // @grant        GM_getValue
 // @grant        GM_setValue
-// @updateURL    https://raw.githubusercontent.com/meintt-1337//Work-mode-fake/main/messenger-work-mode.user.js
-// @downloadURL  https://raw.githubusercontent.com/meintt-1337//Work-mode-fake/main/messenger-work-mode.user.js
+// @updateURL    https://raw.githubusercontent.com/meintt-1337/Work-mode-fake/main/messenger-work-mode.user.js
+// @downloadURL  https://raw.githubusercontent.com/meintt-1337/Work-mode-fake/main/messenger-work-mode.user.js
 // ==/UserScript==
