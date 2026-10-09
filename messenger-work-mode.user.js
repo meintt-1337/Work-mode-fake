@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.1.2
+// @version      1.2.0
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -91,6 +91,7 @@ html.gms-on {
   --gms-top: 64px;
   --gms-side: 252px;
   --gms-head: 116px;
+  --gms-reply-h: 110px;
 }
 html.gms-on.gms-collapsed { --gms-side: 72px; }
 html.gms-on, html.gms-on body { background: var(--md-surface) !important; }
@@ -132,6 +133,8 @@ html.gms-on .gms-main {
   --divider: #e0e0e0; --media-inner-border: #e0e0e0;
 }
 html.gms-on:not(.gms-thread) .gms-main { visibility: hidden !important; }
+html.gms-on.gms-thread .gms-main { clip-path: inset(100% 0 0 0) !important; }
+html.gms-on.gms-thread.gms-reply .gms-main { clip-path: inset(calc(100% - var(--gms-reply-h)) 0 0 0) !important; }
 html.gms-on .gms-main * { font-family: inherit !important; }
 html.gms-on .gms-unx {
   transform: none !important; filter: none !important; perspective: none !important;
@@ -389,6 +392,60 @@ a { color: inherit; text-decoration: none; }
 ::-webkit-scrollbar-thumb { background: rgba(31, 31, 31, .2); border: 4px solid transparent; background-clip: padding-box; border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background-color: rgba(31, 31, 31, .35); }
 ::-webkit-scrollbar-track { background: transparent; }
+
+.gms-conv {
+  position: absolute; left: 0; right: 0; top: var(--gms-head); bottom: 0;
+  background: #fff; border-radius: 0 0 16px 16px;
+  overflow-y: auto; pointer-events: auto; display: none;
+}
+:host(.gms-thread) .gms-conv { display: block; }
+:host(.gms-thread.gms-reply) .gms-conv { bottom: var(--gms-reply-h); border-radius: 0; }
+.gms-conv-in { padding: 0 24px 32px 72px; }
+
+.gms-sum {
+  display: inline-flex; align-items: center; gap: 8px; height: 36px; margin: 0 0 12px;
+  padding: 0 16px 0 12px; border: 1px solid #747775; border-radius: 18px; background: #fff;
+  font: 500 14px/20px var(--md-font-brand); color: #1f1f1f;
+}
+.gms-sum .gms-ico { width: 20px; height: 20px; }
+.gms-sum:hover { background: #f6f8fc; }
+
+.gms-msg {
+  display: flex; align-items: center; gap: 16px; padding: 10px 0;
+  border-top: 1px solid #e8eaed; cursor: pointer;
+}
+.gms-msg.open { align-items: flex-start; cursor: default; padding: 14px 0 8px; }
+.gms-msg a { color: #0b57d0; text-decoration: none; }
+.gms-msg a:hover { text-decoration: underline; }
+.gms-av {
+  width: 40px; height: 40px; border-radius: 50%; flex: none; object-fit: cover;
+  background: #5f6368; color: #fff; display: flex; align-items: center; justify-content: center;
+  font: 500 16px/1 var(--md-font-brand);
+}
+.gms-av.me { background: #1e8e3e; }
+.gms-msg-b { flex: 1; min-width: 0; }
+.gms-msg-n { font-weight: 700; color: #1f1f1f; }
+.gms-msg-s { color: #5e5e5e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gms-msg-t { flex: none; font: 400 12px/16px var(--md-font-plain); color: #5e5e5e; letter-spacing: .3px; }
+.gms-mstar { flex: none; width: 20px; height: 20px; color: #5f6368; display: inline-flex; }
+.gms-mstar .gms-ico { width: 20px; height: 20px; }
+.gms-msg-top { display: flex; align-items: baseline; gap: 6px; }
+.gms-msg-top .gms-msg-t { margin-right: 44px; }
+.gms-msg-e { font-size: 12px; color: #5e5e5e; }
+.gms-msg-to { font-size: 12px; color: #5e5e5e; margin-bottom: 14px; }
+.gms-msg-body { font-size: 14px; line-height: 20px; color: #1f1f1f; white-space: pre-wrap; word-break: break-word; }
+.gms-msg-body > div { margin-bottom: 14px; }
+.gms-quote { margin-top: 18px; font-size: 13px; color: #1f1f1f; }
+.gms-dots { display: inline-block; margin-top: 8px; padding: 0 6px; background: #e8eaed; border-radius: 4px; font-size: 12px; line-height: 14px; color: #5f6368; }
+.gms-replybar { display: flex; gap: 12px; margin: 24px 0 8px; }
+.gms-rb {
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 20px 0 16px;
+  border: 1px solid #747775; border-radius: 20px; background: #fff;
+  font: 500 14px/20px var(--md-font-brand); color: #1f1f1f;
+}
+.gms-rb.round { width: 40px; padding: 0; justify-content: center; }
+.gms-rb:hover { background: #f6f8fc; }
+.gms-rb .gms-ico { width: 20px; height: 20px; }
 `;
 
   const addPageCss = (css) => {
@@ -417,6 +474,7 @@ a { color: inherit; text-decoration: none; }
   const DEFAULTS = Object.freeze({
     enabled: true,
     avatar: 'M',
+    myAvatar: '', // URL ảnh đại diện của bạn trong khung thư (để trống = dùng chữ cái)
     titleTpl: 'Hộp thư đến ({n}) - Gmail', // {n} = số chat chưa đọc
     favicon: true,
     hideThreadHeader: true,
@@ -440,7 +498,12 @@ a { color: inherit; text-decoration: none; }
     collapsedManual: false,
     lastHtml: '',
     checked: new Set(),
+    reply: false,
+    expanded: new Set(),
+    lastConv: '',
+    stickUntil: 0,
   };
+  GMS.msgs = [];
 
   GMS.isMsgPage = () =>
     /(^|\.)messenger\.com$/.test(location.hostname) ||
@@ -495,6 +558,9 @@ a { color: inherit; text-decoration: none; }
     bag: 'M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-1.99.9-1.99 2L3 20c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3zm7 17H5V8h14v12zm-7-8c-1.66 0-3-1.34-3-3H7c0 2.76 2.24 5 5 5s5-2.24 5-5h-2c0 1.66-1.34 3-3 3z',
     info: 'M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z',
     drop: 'M7 10l5 5 5-5z',
+    reply: 'M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z',
+    forward: 'M12 8V4l8 8-8 8v-4H4V8z',
+    mood: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z',
   };
 
   GMS.ico = (name, cls = '') =>
@@ -638,6 +704,7 @@ a { color: inherit; text-decoration: none; }
         time,
         date: GMS.toDateLabel(time),
         unread: looksUnread(a, text, snippet),
+        avatar: a.querySelector('img')?.src || '',
         top: a.getBoundingClientRect().top,
       };
     }
@@ -796,6 +863,7 @@ a { color: inherit; text-decoration: none; }
       ${ib('Trong cửa sổ mới', 'open')}
     </div>
   </div>
+  <div class="gms-conv" id="gms-conv"><div class="gms-conv-in" id="gms-conv-in"></div></div>
 </div>`;
 
     const q = (sel) => ui.shell.querySelector(sel);
@@ -873,6 +941,12 @@ a { color: inherit; text-decoration: none; }
       },
       prev() { stepThread(-1); },
       next() { stepThread(1); },
+      reply() {
+        state.reply = true;
+        GMS.applyClasses();
+        setTimeout(() => { const sc = q('#gms-conv'); sc.scrollTop = sc.scrollHeight; GMS.focusComposer(); }, 80);
+      },
+      forward() { ACTIONS.reply(); },
     };
 
     function onShellClick(e) {
@@ -889,6 +963,17 @@ a { color: inherit; text-decoration: none; }
 
       const f = e.target.closest('[data-folder]');
       if (f) { e.preventDefault(); state.folder = f.dataset.folder; GMS.setMode('list'); GMS.render(true); return; }
+
+      const msg = e.target.closest('.gms-msg[data-i]');
+      if (msg) {
+        if (e.target.closest('a')) return;
+        if (!msg.dataset.fixed) {
+          const i = +msg.dataset.i;
+          state.expanded.has(i) ? state.expanded.delete(i) : state.expanded.add(i);
+          GMS.renderConv(true);
+        }
+        return;
+      }
 
       const a = e.target.closest('[data-act]');
       if (!a) return;
@@ -930,6 +1015,64 @@ a { color: inherit; text-decoration: none; }
 </span></div>`;
     }
 
+    // ---------- khung đọc thư (hội thoại kiểu Gmail) ----------
+    const WD = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+    const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    const nameOf = (x, them) => (x.out ? 'Tôi' : them);
+
+    function avatar(out) {
+      const cur = state.current || {};
+      const url = out ? GMS.settings.myAvatar : cur.avatar;
+      if (url) return `<img class="gms-av" src="${esc(url)}" alt="" referrerpolicy="no-referrer">`;
+      const letter = String(out ? (GMS.settings.avatar || 'M') : (cur.name || '?')).trim().charAt(0).toUpperCase();
+      return `<span class="gms-av${out ? ' me' : ''}">${esc(letter)}</span>`;
+    }
+
+    function closedMsg(x, i, them) {
+      return `<div class="gms-msg" data-i="${i}">${avatar(x.out)}<div class="gms-msg-b"><div class="gms-msg-n">${esc(nameOf(x, them))}</div><div class="gms-msg-s">${esc(x.text.replace(/\s+/g, ' '))}</div></div><span class="gms-msg-t">${esc(x.time)}</span><span class="gms-mstar">${ico('star_border')}</span></div>`;
+    }
+
+    function openMsg(group, i, them, email, prev) {
+      const x = group[0];
+      const mail = x.out ? 'me@gmail.com' : email;
+      let quote = '';
+      if (prev) {
+        const d = new Date();
+        const pm = prev.out ? 'me@gmail.com' : email;
+        quote = `<div class="gms-quote">Vào ${WD[d.getDay()]}, ${d.getDate()} thg ${d.getMonth() + 1}, ${d.getFullYear()} vào lúc ${esc(prev.time || group[group.length - 1].time)} ${esc(nameOf(prev, them))} &lt;<a href="mailto:${esc(pm)}">${esc(pm)}</a>&gt; đã viết:<br><span class="gms-dots">···</span></div>`;
+      }
+      return `<div class="gms-msg open" data-i="${i}"${prev ? ' data-fixed="1"' : ''}>${avatar(x.out)}<div class="gms-msg-b">
+<div class="gms-msg-top"><span class="gms-msg-n">${esc(nameOf(x, them))}</span><span class="gms-msg-e">&lt;${esc(mail)}&gt;</span><span class="gms-spacer"></span><span class="gms-msg-t">${esc(group[group.length - 1].time)}</span></div>
+<div class="gms-msg-to">đến ${x.out ? esc(them) : 'tôi'} ▾</div>
+<div class="gms-msg-body">${group.map((g) => `<div>${linkify(g.text)}</div>`).join('')}</div>${quote}
+</div></div>`;
+    }
+
+    function convHtml() {
+      const msgs = GMS.msgs || [];
+      if (!msgs.length) return '<div class="gms-empty">Đang tải cuộc trò chuyện…</div>';
+      const them = (state.current && state.current.name) || 'Người dùng';
+      const email = (fold(them).replace(/[^a-z0-9]/g, '') || 'user') + '@gmail.com';
+      let start = msgs.length - 1;
+      while (start > 0 && msgs[start - 1].out === msgs[start].out) start--;
+      let html = `<button class="gms-sum">${GMS.SPARKLE}Tóm tắt email này</button>`;
+      msgs.slice(0, start).forEach((x, i) => {
+        html += state.expanded.has(i) ? openMsg([x], i, them, email, null) : closedMsg(x, i, them);
+      });
+      html += openMsg(msgs.slice(start), start, them, email, start > 0 ? msgs[start - 1] : { out: !msgs[start].out, text: '', time: '' });
+      html += `<div class="gms-replybar"><button class="gms-rb" data-act="reply">${ico('reply')}Trả lời</button><button class="gms-rb" data-act="forward">${ico('forward')}Chuyển tiếp</button><button class="gms-rb round" title="Phản hồi bằng biểu tượng cảm xúc">${ico('mood')}</button></div>`;
+      return html;
+    }
+
+    GMS.renderConv = (force) => {
+      if (!ui.shell || state.mode !== 'thread') return;
+      const html = convHtml();
+      if (!force && html === state.lastConv) return;
+      GMS.setHtml(q('#gms-conv-in'), html);
+      state.lastConv = html;
+      if (Date.now() < state.stickUntil) q('#gms-conv').scrollTop = 1e9;
+    };
+
     GMS.render = (force = false) => {
       if (!ui.shell) return;
       const list = visibleThreads();
@@ -950,11 +1093,14 @@ a { color: inherit; text-decoration: none; }
         q('#gms-trange').textContent = i >= 0 ? `${fmtN(i + 1)} trong số ${fmtN(list.length)}` : '';
         q('#gms-subject').textContent = state.current.name;
       }
+      GMS.renderConv(force);
       GMS.setTitle(unread);
     };
 
     // ---------- mở đoạn chat / soạn thư / chuyển chế độ ----------
     function openThread(path) {
+      state.reply = false; state.expanded.clear(); state.lastConv = '';
+      state.stickUntil = Date.now() + 2500; GMS.msgs = [];
       const t = state.threads.find((x) => x.path === path) || { path, name: '' };
       const link = GMS.threadLinks().find((x) => x.path === path);
       state.current = t;
@@ -973,12 +1119,13 @@ a { color: inherit; text-decoration: none; }
     }
 
     GMS.setMode = (m) => {
+      if (m === 'list') state.reply = false;
       state.mode = m;
       GMS.applyClasses();
       if (m === 'thread') setTimeout(GMS.tick, 300);
     };
 
-    const STATE_CLASSES = ['gms-thread', 'gms-collapsed'];
+    const STATE_CLASSES = ['gms-thread', 'gms-collapsed', 'gms-reply'];
     function syncHostClasses() {
       if (!ui.host) return;
       for (const c of STATE_CLASSES) ui.host.classList.toggle(c, root.classList.contains(c));
@@ -989,6 +1136,7 @@ a { color: inherit; text-decoration: none; }
       const narrow = window.innerWidth < 900;
       root.classList.toggle('gms-on', on);
       root.classList.toggle('gms-thread', on && state.mode === 'thread');
+      root.classList.toggle('gms-reply', on && state.mode === 'thread' && state.reply);
       root.classList.toggle('gms-collapsed', on && (state.collapsedManual || narrow));
       syncHostClasses();
     };
@@ -1120,6 +1268,45 @@ a { color: inherit; text-decoration: none; }
       }
     }
 
+    const TIME_IN = /(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*$/i;
+    const SEP_OK = /^[\p{L}\d\s,.:/-]{3,40}$/u;
+
+    GMS.focusComposer = () => {
+      const m = document.querySelector('.gms-main');
+      if (m) textbox(m)?.focus();
+    };
+
+    // Đọc các bong bóng chat (đã được gắn class gms-bubble) thành danh sách tin nhắn.
+    GMS.readMessages = (m) => {
+      const cur = GMS.state.current;
+      const norm = (s) => s.replace(/\/$/, '');
+      if (cur && cur.path && !norm(location.pathname).endsWith(norm(cur.path))) return [];
+      const items = [];
+      for (const b of m.querySelectorAll('.gms-bubble')) {
+        if (b.closest('[contenteditable="true"]') || b.parentElement.closest('.gms-bubble')) continue;
+        const r = b.getBoundingClientRect();
+        if (r.width < 1) continue;
+        const leaves = [...b.querySelectorAll('[dir="auto"]')].filter((x) => !x.querySelector('[dir="auto"]'));
+        const text = (leaves.length ? leaves.map((x) => x.textContent.trim()) : [b.textContent.trim()])
+          .filter(Boolean).join('\n');
+        if (text) items.push({ top: r.top, out: b.classList.contains('gms-out'), text });
+      }
+      for (const el of m.querySelectorAll('[dir="auto"]')) {
+        if (el.querySelector('[dir="auto"]') || el.closest('.gms-bubble') || el.closest('[contenteditable="true"]')) continue;
+        const t = (el.textContent || '').trim();
+        const mt = SEP_OK.test(t) && TIME_IN.exec(t);
+        if (mt) items.push({ top: el.getBoundingClientRect().top, time: GMS.toDateLabel(mt[1]) });
+      }
+      items.sort((a, b) => a.top - b.top);
+      const msgs = [];
+      let time = '';
+      for (const it of items) {
+        if (it.text === undefined) time = it.time;
+        else msgs.push({ out: it.out, text: it.text, time });
+      }
+      return msgs;
+    };
+
     GMS.styleThread = (m) => {
       if (!m) return;
       const mr = m.getBoundingClientRect();
@@ -1224,8 +1411,8 @@ a { color: inherit; text-decoration: none; }
       if (!GMS.ensureShell()) return;
       const m = GMS.applyMain();
       GMS.scan();
+      if (state.mode === 'thread') { GMS.styleThread(m); GMS.msgs = m ? GMS.readMessages(m) : []; }
       GMS.render();
-      if (state.mode === 'thread') GMS.styleThread(m);
       GMS.setFavicon();
     };
 
@@ -1260,6 +1447,10 @@ a { color: inherit; text-decoration: none; }
       GM_registerMenuCommand('Đổi chữ trên ảnh đại diện', () => {
         const v = prompt('Chữ cái trên ảnh đại diện:', settings.avatar);
         if (v !== null) saveSettings({ avatar: v.trim().charAt(0) || 'M' });
+      });
+      GM_registerMenuCommand('Đổi ảnh đại diện của tôi (URL ảnh)', () => {
+        const v = prompt('Dán URL ảnh (để trống = dùng chữ cái):', settings.myAvatar || '');
+        if (v !== null) saveSettings({ myAvatar: v.trim() });
       });
       GM_registerMenuCommand('Đổi tiêu đề tab', () => {
         const v = prompt('Tiêu đề tab ({n} = số chat chưa đọc):', settings.titleTpl);
