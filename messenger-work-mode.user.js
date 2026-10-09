@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.4.2
+// @version      1.5.0
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -134,6 +134,7 @@ html.gms-on .gms-main {
 }
 html.gms-on:not(.gms-thread) .gms-main { visibility: hidden !important; }
 html.gms-on.gms-thread .gms-main { clip-path: inset(100% 0 0 0) !important; pointer-events: none !important; }
+html.gms-on.gms-thread.gms-unclip .gms-main { clip-path: none !important; }
 html.gms-on .gms-main * { font-family: inherit !important; }
 html.gms-on .gms-unx {
   transform: none !important; filter: none !important; perspective: none !important;
@@ -395,7 +396,7 @@ a { color: inherit; text-decoration: none; }
 .gms-conv {
   position: absolute; left: 0; right: 0; top: var(--gms-head); bottom: 0;
   background: #fff; border-radius: 0 0 16px 16px;
-  overflow-y: auto; pointer-events: auto; display: none;
+  overflow-y: auto; overflow-anchor: none; pointer-events: auto; display: none;
 }
 :host(.gms-thread) .gms-conv { display: block; }
 .gms-conv-in { padding: 0 24px 32px 72px; }
@@ -407,6 +408,7 @@ a { color: inherit; text-decoration: none; }
 }
 .gms-sum .gms-ico { width: 20px; height: 20px; }
 .gms-sum:hover { background: #f6f8fc; }
+.gms-sum + .gms-sum { margin-left: 8px; }
 
 .gms-msg {
   display: flex; align-items: center; gap: 16px; padding: 10px 0;
@@ -948,6 +950,9 @@ a { color: inherit; text-decoration: none; }
         const s = e.currentTarget;
         if (s.scrollTop + s.clientHeight > s.scrollHeight - 120) GMS.loadMore();
       });
+      el.querySelector('#gms-conv').addEventListener('scroll', (e) => {
+        if (state.mode === 'thread' && e.currentTarget.scrollTop < 200) GMS.loadOlder();
+      });
       return el;
     }
 
@@ -992,6 +997,7 @@ a { color: inherit; text-decoration: none; }
       back() { GMS.setMode('list'); },
       refresh() { GMS.resetScanCache(); GMS.scan(); GMS.render(true); q('#gms-scroll').scrollTop = 0; },
       older() { GMS.loadMore(); },
+      olderMsgs() { GMS.loadOlder(); },
       compose() { compose(); },
       checkall() {
         if (state.checked.size) state.checked.clear();
@@ -1144,7 +1150,7 @@ a { color: inherit; text-decoration: none; }
       const email = (fold(them).replace(/[^a-z0-9]/g, '') || 'user') + '@gmail.com';
       let start = msgs.length - 1;
       while (start > 0 && msgs[start - 1].out === msgs[start].out) start--;
-      let html = `<button class="gms-sum">${GMS.SPARKLE}Tóm tắt email này</button>`;
+      let html = `<button class="gms-sum">${GMS.SPARKLE}Tóm tắt email này</button><button class="gms-sum" data-act="olderMsgs">${ico('refresh')}Tải tin cũ hơn</button>`;
       msgs.slice(0, start).forEach((x, i) => {
         html += state.expanded.has(i) ? openMsg([x], i, them, email, null) : closedMsg(x, i, them);
       });
@@ -1157,9 +1163,15 @@ a { color: inherit; text-decoration: none; }
       if (!ui.shell || state.mode !== 'thread') return;
       const html = convHtml();
       if (!force && html === state.lastConv) return;
+      const sc = q('#gms-conv');
+      const oldH = sc.scrollHeight, oldT = sc.scrollTop;
       GMS.setHtml(q('#gms-conv-in'), html);
       state.lastConv = html;
-      if (Date.now() < state.stickUntil) q('#gms-conv').scrollTop = 1e9;
+      if (GMS.prepended > 0) {
+        // tin cũ vừa được chèn lên đầu: giữ nguyên vị trí đang đọc
+        sc.scrollTop = oldT + (sc.scrollHeight - oldH);
+        GMS.prepended = 0;
+      } else if (Date.now() < state.stickUntil) sc.scrollTop = 1e9;
     };
 
     GMS.render = (force = false) => {
@@ -1195,6 +1207,7 @@ a { color: inherit; text-decoration: none; }
       state.files = []; renderFiles();
       state.reply = false; state.expanded.clear(); state.lastConv = '';
       state.stickUntil = Date.now() + 2500; GMS.msgs = [];
+      GMS.resetMsgCache(); GMS.prepended = 0;
       const t = state.threads.find((x) => x.path === path) || { path, name: '' };
       const link = GMS.threadLinks().find((x) => x.path === path);
       state.current = t;
@@ -1447,7 +1460,7 @@ a { color: inherit; text-decoration: none; }
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         u = URL.createObjectURL(new Blob([bytes], { type: mime }));
       } catch (e) { u = ''; }
-      if (blobCache.size > 40) {
+      if (blobCache.size > 150) {
         const k = blobCache.keys().next().value;
         if (blobCache.get(k)) URL.revokeObjectURL(blobCache.get(k));
         blobCache.delete(k);
@@ -1575,6 +1588,95 @@ a { color: inherit; text-decoration: none; }
       return msgs;
     };
 
+    // ---------- gộp tin đã đọc + tải tin cũ hơn ----------
+    // Key không gồm giờ/URL ảnh vì chúng có thể đổi giữa các lần đọc.
+    const mkey = (x) => (x.out ? 'o' : 'i') + '|' +
+      ((x.media || x.text === '[Hình ảnh / video]') ? 'M' + (x.media ? x.media.map((md) => (md.vid ? 'v' : 'p')).join('') : 'p') : (x.text || ''));
+    const MAX_CACHED = 500;
+    GMS.msgCache = { path: null, list: [] };
+    GMS.resetMsgCache = () => { GMS.msgCache = { path: null, list: [] }; };
+    GMS.prepended = 0;
+
+    // Tin chỉ còn trong cache (đã rời khỏi DOM) thì không còn phần tử để mở bản gốc.
+    const detach = (list) => list.map((x) => (x.media
+      ? { ...x, media: x.media.map((md) => ({ ...md, i: -1 })) }
+      : x));
+
+    GMS.mergeMsgs = (fresh) => {
+      const st = GMS.state;
+      const path = st.current ? st.current.path : '';
+      const c = GMS.msgCache;
+      if (c.path !== path) { c.path = path; c.list = []; }
+      if (!fresh.length) return c.list;
+      const old = c.list;
+      if (!old.length) { c.list = fresh.slice(); return c.list; }
+
+      const fk = fresh.map(mkey);
+      const ok = old.map(mkey);
+      const F = fk.length, O = ok.length;
+      const need = Math.min(3, F, O);
+      // off = vị trí của fresh[0] so với old[0]; tìm độ lệch khớp toàn bộ phần chồng nhau
+      const overlapAt = (off) => {
+        const a = Math.max(0, -off), b = Math.min(F - 1, O - 1 - off);
+        if (b < a) return 0;
+        for (let k = a; k <= b; k++) if (fk[k] !== ok[k + off]) return 0;
+        return b - a + 1;
+      };
+      let bestOff = null, bestLen = 0;
+      const maxPossible = Math.min(F, O);
+      const first = overlapAt(0);
+      if (first >= need) { bestOff = 0; bestLen = first; }
+      if (bestLen < maxPossible) {
+        for (let off = -(F - 1); off <= O - 1; off++) {
+          if (off === 0) continue;
+          const len = overlapAt(off);
+          if (len >= need && len > bestLen) { bestOff = off; bestLen = len; if (len === maxPossible) break; }
+        }
+      }
+      if (bestOff === null) { c.list = fresh.slice(); return c.list; } // không khớp: thay hẳn
+
+      const head = bestOff > 0 ? detach(old.slice(0, bestOff)) : [];
+      const tail = bestOff + F < O ? detach(old.slice(bestOff + F)) : [];
+      let merged = head.concat(fresh, tail);
+      if (bestOff < 0) {
+        const n = -bestOff;
+        GMS.prepended += n;
+        st.expanded = new Set([...st.expanded].map((i) => i + n));
+      }
+      if (merged.length > MAX_CACHED) merged = merged.slice(-MAX_CACHED);
+      c.list = merged;
+      return merged;
+    };
+
+    // Tìm vùng cuộn thật của Messenger rồi kéo lên đầu để nó tải tin cũ hơn.
+    function findScroller(m) {
+      const tb = textbox(m);
+      let best = null, bh = 0;
+      for (const el of m.querySelectorAll('div')) {
+        if (el.clientHeight < 80 || el.scrollHeight <= el.clientHeight + 10 || el.scrollHeight <= bh) continue;
+        if (tb && el.contains(tb)) continue;
+        const oy = getComputedStyle(el).overflowY;
+        if (oy !== 'auto' && oy !== 'scroll') continue;
+        bh = el.scrollHeight; best = el;
+      }
+      return best;
+    }
+
+    let olderAt = 0;
+    GMS.loadOlder = () => {
+      const now = Date.now();
+      if (now - olderAt < 1500) return false;
+      const m = document.querySelector('.gms-main');
+      const sp = m && findScroller(m);
+      if (!sp) return false;
+      olderAt = now;
+      root.classList.add('gms-unclip'); // clip-path có thể khiến Messenger tưởng khung không hiển thị
+      sp.scrollTop = 0;
+      setTimeout(() => { sp.scrollTop = sp.scrollHeight; }, 1200); // trả về cuối để tin mới nhất vẫn nằm trong DOM
+      setTimeout(() => root.classList.remove('gms-unclip'), 1400);
+      return true;
+    };
+
     GMS.styleThread = (m) => {
       if (!m) return;
       const mr = m.getBoundingClientRect();
@@ -1686,7 +1788,7 @@ a { color: inherit; text-decoration: none; }
       GMS.ui.host.style.visibility = pk && pk.on ? 'hidden' : '';
       const m = GMS.applyMain();
       GMS.scan();
-      if (state.mode === 'thread') { GMS.styleThread(m); GMS.msgs = m ? GMS.readMessages(m) : []; }
+      if (state.mode === 'thread') { GMS.styleThread(m); GMS.msgs = m ? GMS.mergeMsgs(GMS.readMessages(m)) : []; }
       GMS.render();
       GMS.setFavicon();
     };
