@@ -1435,6 +1435,27 @@ a { color: inherit; text-decoration: none; }
       el.click();
     };
 
+    const blobCache = new Map();
+    function dataToBlobUrl(uri) {
+      const key = uri.length + ':' + uri.slice(-48);
+      let u = blobCache.get(key);
+      if (u !== undefined) return u;
+      try {
+        const mime = (/^data:([^;,]+)/.exec(uri) || [])[1] || 'image/jpeg';
+        const bin = atob(uri.slice(uri.indexOf(',') + 1));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        u = URL.createObjectURL(new Blob([bytes], { type: mime }));
+      } catch (e) { u = ''; }
+      if (blobCache.size > 40) {
+        const k = blobCache.keys().next().value;
+        if (blobCache.get(k)) URL.revokeObjectURL(blobCache.get(k));
+        blobCache.delete(k);
+      }
+      blobCache.set(key, u);
+      return u;
+    }
+
     GMS.readMessages = (m) => {
       const cur = GMS.state.current;
       const norm = (s) => s.replace(/\/$/, '');
@@ -1504,8 +1525,11 @@ a { color: inherit; text-decoration: none; }
         if (square && (parseFloat(getComputedStyle(el).borderTopLeftRadius) >= half ||
             (el.parentElement && parseFloat(getComputedStyle(el.parentElement).borderTopLeftRadius) >= half))) continue; // ảnh đại diện tròn
         const vid = el.tagName === 'VIDEO';
-        const src = vid ? (el.poster || '') : (el.currentSrc || el.src || '');
-        if (!vid && (!src || src.startsWith('data:') || /emoji|rsrc\.php/.test(src))) continue;
+        let src = vid ? (el.poster || '') : (el.currentSrc || el.src || '');
+        if (!vid && (!src || /emoji|rsrc\.php/.test(src))) continue;
+        // Ảnh vừa gửi thường là data:image/...;base64 -> đổi sang blob URL (có cache) để khỏi nhét chuỗi khổng lồ vào HTML
+        if (src.startsWith('data:')) src = dataToBlobUrl(src);
+        if (!vid && !src) continue;
         const key = src || 'v' + Math.round(r.top);
         if (seen.has(key)) continue;
         seen.add(key);
