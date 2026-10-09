@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.3.0
+// @version      1.4.0
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -458,6 +458,10 @@ a { color: inherit; text-decoration: none; }
 .gms-media.vid .gms-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.25); color: #fff; }
 .gms-media.vid .gms-play .gms-ico { width: 48px; height: 48px; }
 .gms-media.nopost { width: 240px; height: 140px; background: #444746; }
+.gms-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.gms-files:empty { display: none; }
+.gms-fchip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 10px; background: #e8eaed; border-radius: 12px; font-size: 12px; color: #1f1f1f; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.gms-fchip i { font-style: normal; cursor: pointer; padding: 0 4px; }
 `;
 
   const addPageCss = (css) => {
@@ -574,6 +578,7 @@ a { color: inherit; text-decoration: none; }
     forward: 'M12 8V4l8 8-8 8v-4H4V8z',
     mood: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z',
     play: 'M8 5v14l11-7z',
+    attach: 'M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z',
   };
 
   GMS.ico = (name, cls = '') =>
@@ -879,9 +884,12 @@ a { color: inherit; text-decoration: none; }
   <div class="gms-conv" id="gms-conv"><div class="gms-conv-in" id="gms-conv-in"></div>
     <div class="gms-replybox">
       <div class="gms-replyto" id="gms-replyto"></div>
-      <textarea id="gms-reply-text" placeholder="Nhập nội dung trả lời" spellcheck="false"></textarea>
+      <div class="gms-files" id="gms-files"></div>
+      <textarea id="gms-reply-text" placeholder="Nhập nội dung trả lời (có thể dán ảnh)" spellcheck="false"></textarea>
+      <input type="file" id="gms-file" accept="image/*,video/*" multiple hidden>
       <div class="gms-replybar2">
         <button class="gms-send" data-act="send">Gửi</button>
+        ${ib('Đính kèm hình ảnh / video', 'attach', { act: 'attach' })}
         <div class="gms-spacer"></div>
         ${ib('Hủy bản nháp', 'del', { act: 'discard' })}
       </div>
@@ -890,6 +898,16 @@ a { color: inherit; text-decoration: none; }
 </div>`;
 
     const q = (sel) => ui.shell.querySelector(sel);
+
+    function renderFiles() {
+      if (!ui.shell) return;
+      GMS.setHtml(q('#gms-files'), (state.files || []).map((f, i) =>
+        `<span class="gms-fchip">${esc(f.name || 'ảnh dán')}<i data-rm="${i}" title="Bỏ tệp">×</i></span>`).join(''));
+    }
+    function addFiles(list) {
+      state.files = (state.files || []).concat(list.filter((f) => /^(image|video)\//.test(f.type)));
+      renderFiles();
+    }
 
     function buildShell() {
       ui.host = document.createElement('div');
@@ -907,6 +925,11 @@ a { color: inherit; text-decoration: none; }
         state.query = e.target.value;
         if (state.mode !== 'list') GMS.setMode('list');
         GMS.render(true);
+      });
+      el.querySelector('#gms-file').addEventListener('change', (e) => { addFiles([...e.target.files]); e.target.value = ''; });
+      el.querySelector('#gms-reply-text').addEventListener('paste', (e) => {
+        const fs = [...((e.clipboardData && e.clipboardData.files) || [])].filter((f) => /^image\//.test(f.type));
+        if (fs.length) { e.preventDefault(); addFiles(fs); }
       });
       el.querySelector('#gms-scroll').addEventListener('scroll', (e) => {
         const s = e.currentTarget;
@@ -972,15 +995,18 @@ a { color: inherit; text-decoration: none; }
         setTimeout(() => { const sc = q('#gms-conv'); sc.scrollTop = sc.scrollHeight; q('#gms-reply-text').focus(); }, 60);
       },
       forward() { ACTIONS.reply(); },
-      discard() { q('#gms-reply-text').value = ''; state.reply = false; GMS.applyClasses(); },
+      attach() { q('#gms-file').click(); },
+      discard() { q('#gms-reply-text').value = ''; state.files = []; renderFiles(); state.reply = false; GMS.applyClasses(); },
       send() {
         const ta = q('#gms-reply-text');
         const text = ta.value.trim();
-        if (!text) return;
-        if (GMS.sendMessage(text)) {
-          ta.value = ''; state.reply = false; state.stickUntil = Date.now() + 4000;
-          GMS.applyClasses();
-        }
+        const files = state.files || [];
+        if (!text && !files.length) return;
+        const ok = files.length ? GMS.sendFiles(files, text) : GMS.sendMessage(text);
+        if (!ok) { if (files.length) alert('Không tìm thấy ô tải ảnh của Messenger. Thử mở lại đoạn chat.'); return; }
+        ta.value = ''; state.files = []; renderFiles();
+        state.reply = false; state.stickUntil = Date.now() + 5000;
+        GMS.applyClasses();
       },
     };
 
@@ -998,6 +1024,9 @@ a { color: inherit; text-decoration: none; }
 
       const f = e.target.closest('[data-folder]');
       if (f) { e.preventDefault(); state.folder = f.dataset.folder; GMS.setMode('list'); GMS.render(true); return; }
+
+      const rm = e.target.closest('[data-rm]');
+      if (rm) { e.stopPropagation(); state.files.splice(+rm.dataset.rm, 1); renderFiles(); return; }
 
       const med = e.target.closest('[data-mi]');
       if (med) { e.stopPropagation(); GMS.peekMedia(+med.dataset.mi); return; }
@@ -1147,6 +1176,7 @@ a { color: inherit; text-decoration: none; }
     // ---------- mở đoạn chat / soạn thư / chuyển chế độ ----------
     function openThread(path) {
       const rt = q('#gms-reply-text'); if (rt) rt.value = '';
+      state.files = []; renderFiles();
       state.reply = false; state.expanded.clear(); state.lastConv = '';
       state.stickUntil = Date.now() + 2500; GMS.msgs = [];
       const t = state.threads.find((x) => x.path === path) || { path, name: '' };
@@ -1319,7 +1349,9 @@ a { color: inherit; text-decoration: none; }
     const TIME_IN = /(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*$/i;
     const SEP_OK = /^[\p{L}\d\s,.:/-]{3,40}$/u;
     // Chữ ẩn dành cho trình đọc màn hình: "Nhập, Tin nhắn do Bạn gửi lúc 09:59: ..."
-    const ACC_RE = /^(?:(?:Nhập|Enter)\s*[,.]\s*)?(?:Tin nhắn do .{1,60}? gửi lúc|Message (?:sent|from) .{1,60}? (?:at|sent at))\s*(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*:\s*/i;
+    // Nhóm 1/2 = người gửi (Bạn / You / tên người kia), nhóm 3 = giờ.
+    const ACC_RE = /^(?:(?:Nhập|Enter)\s*[,.]\s*)?(?:Tin nhắn do (.{1,80}?) gửi lúc|Message (?:sent )?(?:by|from) (.{1,80}?) (?:at|sent at))\s*(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*:\s*/i;
+    const SELF_RE = /^(bạn|you)$/i;
 
     GMS.mediaEls = [];
     GMS.peek = { on: false, seen: false, at: 0 };
@@ -1328,6 +1360,19 @@ a { color: inherit; text-decoration: none; }
       const m = document.querySelector('.gms-main');
       if (m) textbox(m)?.focus();
     };
+
+    // Nhấn Enter trong ô nhập thật của Messenger (có nút gửi dự phòng).
+    function submit(m, tb) {
+      const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      tb.focus();
+      tb.dispatchEvent(new KeyboardEvent('keydown', ev));
+      tb.dispatchEvent(new KeyboardEvent('keyup', ev));
+      setTimeout(() => {
+        const btn = [...m.querySelectorAll('[aria-label]')].find((x) =>
+          /^(nhấn enter để gửi|press enter to send|gửi|send)$/i.test(x.getAttribute('aria-label')));
+        if (btn && ((tb.textContent || '').trim() || m.querySelector('img[src^="blob:"]'))) btn.click();
+      }, 500);
+    }
 
     // Gõ chữ vào ô nhập thật của Messenger rồi nhấn Enter.
     GMS.sendMessage = (text) => {
@@ -1341,17 +1386,27 @@ a { color: inherit; text-decoration: none; }
         if (i) document.execCommand('insertLineBreak', false);
         if (line) document.execCommand('insertText', false, line);
       });
+      setTimeout(() => submit(m, tb), 80);
+      return true;
+    };
+
+    // Đưa tệp vào ô chọn tệp ẩn của Messenger, đợi nó tải lên rồi gửi.
+    GMS.sendFiles = (files, text) => {
+      const m = document.querySelector('.gms-main');
+      const tb = m && textbox(m);
+      if (!tb) return false;
+      const input = (m.querySelector('input[type="file"]')) ||
+        [...document.querySelectorAll('input[type="file"]')].find((x) => !(ui.shell && ui.shell.contains(x)));
+      if (!input) return false;
+      const dt = new DataTransfer();
+      files.forEach((f) => dt.items.add(f));
+      input.files = dt.files;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
       setTimeout(() => {
-        const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-        tb.dispatchEvent(new KeyboardEvent('keydown', ev));
-        tb.dispatchEvent(new KeyboardEvent('keyup', ev));
-        setTimeout(() => { // dự phòng: ô vẫn còn chữ thì bấm nút gửi
-          if (!(tb.textContent || '').trim()) return;
-          const btn = [...m.querySelectorAll('[aria-label]')].find((x) =>
-            /^(nhấn enter để gửi|press enter to send|gửi|send)$/i.test(x.getAttribute('aria-label')));
-          btn?.click();
-        }, 400);
-      }, 80);
+        if (text) GMS.sendMessage(text);
+        else submit(m, tb);
+      }, 1400);
       return true;
     };
 
@@ -1369,9 +1424,11 @@ a { color: inherit; text-decoration: none; }
       if (cur && cur.path && !norm(location.pathname).endsWith(norm(cur.path))) return [];
       const mr = m.getBoundingClientRect();
       const mid = mr.left + mr.width / 2;
-      const items = [];
       GMS.mediaEls = [];
 
+      // 1) Đọc chữ. Mỗi tin có thể xuất hiện 2 lần: bản "chữ ẩn" (có người gửi + giờ) và bản hiển thị.
+      const acc = [];
+      const plain = [];
       for (const b of m.querySelectorAll('.gms-bubble')) {
         if (b.closest('[contenteditable="true"]') || b.parentElement.closest('.gms-bubble')) continue;
         const r = b.getBoundingClientRect();
@@ -1379,26 +1436,47 @@ a { color: inherit; text-decoration: none; }
         const leaves = [...b.querySelectorAll('[dir="auto"]')].filter((x) => !x.querySelector('[dir="auto"]'));
         const raw = leaves.length ? leaves.map((x) => x.textContent.trim()) : [b.textContent.trim()];
         const lines = [];
+        let who = null;
         let own = '';
         for (const x of raw) {
           if (!x) continue;
           const mt = ACC_RE.exec(x);
           let t = x;
-          if (mt) { own = GMS.toDateLabel(mt[1]); t = x.slice(mt[0].length).trim(); }
+          if (mt) { who = (mt[1] || mt[2] || '').trim(); own = GMS.toDateLabel(mt[3]); t = x.slice(mt[0].length).trim(); }
           if (t && t !== lines[lines.length - 1]) lines.push(t);
         }
         const text = lines.join('\n');
-        if (text) items.push({ top: r.top, out: b.classList.contains('gms-out'), text, own });
+        if (!text) continue;
+        if (who !== null) acc.push({ top: r.top, out: SELF_RE.test(who), text, own });
+        else plain.push({ top: r.top, out: r.left + r.width / 2 > mid && r.right > mr.right - mr.width * 0.25, text });
       }
 
+      // 2) Ghép mỗi bản "chữ ẩn" với bản hiển thị cùng nội dung gần nhất rồi bỏ bản thừa (chống lặp tin).
+      const used = new Set();
+      for (const a of acc) {
+        let best = -1;
+        let bd = Infinity;
+        plain.forEach((p, k) => {
+          if (used.has(k) || p.text !== a.text) return;
+          const d = Math.abs(p.top - a.top);
+          if (d < bd) { bd = d; best = k; }
+        });
+        if (best >= 0) { used.add(best); a.top = plain[best].top; }
+      }
+      const accUniq = acc.filter((a, i) =>
+        !acc.slice(0, i).some((b) => b.text === a.text && b.own === a.own && Math.abs(b.top - a.top) < 4));
+      const items = [...accUniq, ...plain.filter((_, k) => !used.has(k))];
+
+      // 3) Hình / video
       const seen = new Set();
       for (const el of m.querySelectorAll('img, video')) {
         if (el.closest('[contenteditable="true"]')) continue;
         const r = el.getBoundingClientRect();
         if (r.width < 80 || r.height < 60) continue;
         const half = Math.min(r.width, r.height) / 2 - 1;
-        if (parseFloat(getComputedStyle(el).borderTopLeftRadius) >= half ||
-            (el.parentElement && parseFloat(getComputedStyle(el.parentElement).borderTopLeftRadius) >= half)) continue; // ảnh đại diện tròn
+        const square = Math.abs(r.width - r.height) < 6;
+        if (square && (parseFloat(getComputedStyle(el).borderTopLeftRadius) >= half ||
+            (el.parentElement && parseFloat(getComputedStyle(el.parentElement).borderTopLeftRadius) >= half))) continue; // ảnh đại diện tròn
         const vid = el.tagName === 'VIDEO';
         const src = vid ? (el.poster || '') : (el.currentSrc || el.src || '');
         if (!vid && (!src || src.startsWith('data:') || /emoji|rsrc\.php/.test(src))) continue;
@@ -1413,6 +1491,7 @@ a { color: inherit; text-decoration: none; }
         });
       }
 
+      // 4) Mốc thời gian giữa đoạn chat
       for (const el of m.querySelectorAll('[dir="auto"]')) {
         if (el.querySelector('[dir="auto"]') || el.closest('.gms-bubble') || el.closest('[contenteditable="true"]')) continue;
         const t = (el.textContent || '').trim();
