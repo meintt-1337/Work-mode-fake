@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.1.0
+// @version      1.1.2
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -122,6 +122,7 @@ html.gms-on .gms-main {
   padding-left: 56px !important;
   box-sizing: border-box !important;
   font-family: var(--md-font-plain) !important;
+  color-scheme: light !important;
   --primary-text: var(--md-on-surface); --secondary-text: var(--md-on-surface-variant); --placeholder-text: #5f6368;
   --accent: var(--md-primary); --blue-link: var(--md-primary); --primary-button-background: var(--md-primary);
   --primary-icon: var(--md-on-surface-variant); --secondary-icon: var(--md-on-surface-variant); --disabled-icon: var(--md-outline-variant);
@@ -143,6 +144,7 @@ html.gms-on [role="complementary"]:not(:has(.gms-main)) {
 }
 html.gms-on .gms-hide { display: none !important; }
 
+html.gms-on .gms-main .gms-flat { background: #fff !important; background-image: none !important; }
 html.gms-on .gms-main .gms-bubble {
   background: var(--md-surface-container) !important; background-image: none !important;
   color: var(--md-on-surface) !important;
@@ -165,6 +167,7 @@ html.gms-on .gms-main [contenteditable="true"][role="textbox"] { color: var(--md
 
 html.gms-on .gms-main ::-webkit-scrollbar { width: 16px; height: 16px; }
 html.gms-on .gms-main ::-webkit-scrollbar-thumb { background: rgba(31, 31, 31, .2); border: 4px solid transparent; background-clip: padding-box; border-radius: 8px; }
+html.gms-on .gms-main ::-webkit-scrollbar-track { background: #fff !important; }
 `;
 
   // ---- shell.css: nằm trong Shadow DOM ----
@@ -417,6 +420,7 @@ a { color: inherit; text-decoration: none; }
     titleTpl: 'Hộp thư đến ({n}) - Gmail', // {n} = số chat chưa đọc
     favicon: true,
     hideThreadHeader: true,
+    forceLight: true, // ép Messenger sang nền sáng (khung chat dễ đổi màu hơn)
   });
 
   const gmGet = (k, d) => { try { return typeof GM_getValue === 'function' ? GM_getValue(k, d) : d; } catch (e) { return d; } };
@@ -1034,34 +1038,65 @@ a { color: inherit; text-decoration: none; }
       return m;
     };
 
-    function isPainted(cs) {
-      const bg = cs.backgroundColor;
-      const painted = bg && bg !== 'transparent' && !/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0\s*\)/.test(bg) && !/^rgb\(255,\s*255,\s*255\)$/.test(bg);
-      return painted || (cs.backgroundImage && cs.backgroundImage !== 'none' && /gradient/.test(cs.backgroundImage));
+    // Đọc màu "rgb(...)", "rgba(...)" hoặc "rgb(r g b / a)".
+    function parseRgb(c) {
+      const mt = /rgba?\(([^)]+)\)/.exec(c || '');
+      if (!mt) return null;
+      const p = mt[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+      return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
     }
 
-    function findPainted(start, stop, maxUp, radius) {
+    // Có nền (màu hoặc ảnh/gradient). Màu trắng cũng tính, kể cả trắng bán trong suốt.
+    function isPainted(cs) {
+      const c = parseRgb(cs.backgroundColor);
+      return (c && c.a > 0.05) || (cs.backgroundImage && cs.backgroundImage !== 'none');
+    }
+
+    // Leo từ `start` lên tối đa `maxUp` cấp, trả về phần tử đầu tiên bo góc >= `radius` và có nền.
+    // allowEmpty: nếu không có phần tử nào có nền thì lấy phần tử bo góc đầu tiên.
+    function findPainted(start, stop, maxUp, radius, allowEmpty = false) {
       let node = start;
+      let fallback = null;
       for (let i = 0; i < maxUp && node && node !== stop; i++, node = node.parentElement) {
         const cs = getComputedStyle(node);
-        if (parseFloat(cs.borderTopLeftRadius) >= radius && isPainted(cs)) return node;
+        if (parseFloat(cs.borderTopLeftRadius) < radius) continue;
+        if (isPainted(cs)) return node;
+        fallback = fallback || node;
       }
-      return null;
+      return allowEmpty ? fallback : null;
     }
 
     function styleBubbles(m, mr) {
       const mid = mr.left + mr.width / 2;
       let n = 0;
-      for (const t of m.querySelectorAll('div[dir="auto"]:not([data-gms-b])')) {
+      for (const t of m.querySelectorAll('div[dir="auto"]:not([data-gms-b]), span[dir="auto"]:not([data-gms-b])')) {
         if (++n > 400) break;
-        if (t.closest('[contenteditable="true"]')) continue;
-        const bubble = findPainted(t, m, 7, 8);
-        if (!bubble) continue;
-        t.setAttribute('data-gms-b', '1');
+        if (t.closest('[contenteditable="true"]')) { t.setAttribute('data-gms-b', '0'); continue; }
+        const bubble = findPainted(t, m, 9, 8, true);
+        if (!bubble) { t.setAttribute('data-gms-b', '0'); continue; }
         const r = bubble.getBoundingClientRect();
-        if (r.width === 0) { t.removeAttribute('data-gms-b'); continue; }
+        if (r.width === 0) continue; // chưa render: thử lại ở lần sau
+        t.setAttribute('data-gms-b', '1');
         bubble.classList.add('gms-bubble');
         bubble.classList.toggle('gms-out', r.left + r.width / 2 > mid && r.right > mr.right - mr.width * 0.25);
+      }
+    }
+
+    // Nền chủ đề cuộc trò chuyện (ảnh, màu hồng...) và các thanh rộng có màu -> trắng.
+    function flattenBackdrops(m, mr) {
+      let n = 0;
+      for (const el of m.querySelectorAll('div:not([data-gms-bg])')) {
+        if (++n > 250) break;
+        const r = el.getBoundingClientRect();
+        if (r.width < 1) continue; // chưa render: thử lại ở lần sau
+        el.setAttribute('data-gms-bg', '1');
+        if (r.width < mr.width * 0.6 || r.height < 36) continue;
+        if (el.classList.contains('gms-bubble')) continue;
+        const cs = getComputedStyle(el);
+        const c = parseRgb(cs.backgroundColor);
+        const hasImg = cs.backgroundImage && cs.backgroundImage !== 'none';
+        const tinted = c && c.a > 0.05 && !(c.r >= 245 && c.g >= 245 && c.b >= 245);
+        if (hasImg || tinted) el.classList.add('gms-flat');
       }
     }
 
@@ -1090,6 +1125,7 @@ a { color: inherit; text-decoration: none; }
       const mr = m.getBoundingClientRect();
       if (mr.width < 50) return;
       styleBubbles(m, mr);
+      flattenBackdrops(m, mr);
       styleComposer(m);
       if (GMS.settings.hideThreadHeader) hideThreadHeader(m, mr);
     };
@@ -1156,9 +1192,35 @@ a { color: inherit; text-decoration: none; }
 
     let tickTimer = null;
 
+    // ---------- ép nền sáng: Messenger dùng class này trên <html> để bật Dark mode ----------
+    const DARK = '__fb-dark-mode';
+    const LIGHT = '__fb-light-mode';
+    let forcedDark = false;
+    let hadLight = null;
+
+    function forceLight() {
+      if (!GMS.active() || !settings.forceLight) return;
+      const cl = root.classList;
+      if (hadLight === null) hadLight = cl.contains(LIGHT);
+      if (cl.contains(DARK)) { cl.remove(DARK); forcedDark = true; }
+      if (!cl.contains(LIGHT)) cl.add(LIGHT);
+    }
+
+    function restoreTheme() {
+      if (!forcedDark) return;
+      forcedDark = false;
+      const cl = root.classList;
+      cl.add(DARK);
+      if (!hadLight) cl.remove(LIGHT);
+    }
+
+    // Messenger có thể tự gắn lại class tối: giữ nguyên chế độ sáng.
+    new MutationObserver(forceLight).observe(root, { attributes: true, attributeFilter: ['class'] });
+
     GMS.tick = () => {
       GMS.applyClasses();
       if (!GMS.active()) return;
+      forceLight();
       if (!GMS.ensureShell()) return;
       const m = GMS.applyMain();
       GMS.scan();
@@ -1170,10 +1232,11 @@ a { color: inherit; text-decoration: none; }
     function teardown() {
       GMS.applyClasses();
       GMS.ui.host?.remove();
-      ['gms-main', 'gms-unx', 'gms-hidelist', 'gms-bubble', 'gms-out', 'gms-composer', 'gms-hide'].forEach((c) =>
+      ['gms-main', 'gms-unx', 'gms-hidelist', 'gms-bubble', 'gms-out', 'gms-composer', 'gms-hide', 'gms-flat'].forEach((c) =>
         document.querySelectorAll('.' + c).forEach((x) => x.classList.remove(c)));
-      document.querySelectorAll('[data-gms-b]').forEach((x) => x.removeAttribute('data-gms-b'));
+      document.querySelectorAll('[data-gms-b], [data-gms-bg]').forEach((x) => { x.removeAttribute('data-gms-b'); x.removeAttribute('data-gms-bg'); });
       GMS.restoreFavicon();
+      restoreTheme();
     }
 
     const refresh = () => (GMS.active() ? GMS.tick() : teardown());
@@ -1182,6 +1245,7 @@ a { color: inherit; text-decoration: none; }
     function onSettingsChanged() {
       if (!settings.enabled) state.mode = 'list';
       if (!settings.hideThreadHeader) document.querySelectorAll('.gms-hide').forEach((x) => x.classList.remove('gms-hide'));
+      if (!settings.forceLight) restoreTheme();
       refresh();
     }
 
@@ -1203,6 +1267,7 @@ a { color: inherit; text-decoration: none; }
       });
       GM_registerMenuCommand('Bật / tắt icon Gmail trên tab', () => saveSettings({ favicon: !settings.favicon }));
       GM_registerMenuCommand('Ẩn / hiện thanh tên trong đoạn chat', () => saveSettings({ hideThreadHeader: !settings.hideThreadHeader }));
+      GM_registerMenuCommand('Ép khung chat sang nền sáng (bật / tắt)', () => saveSettings({ forceLight: !settings.forceLight }));
     }
 
     if (typeof GM_addValueChangeListener === 'function') {
