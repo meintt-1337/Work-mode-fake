@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.4.1
+// @version      1.4.2
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -1743,9 +1743,16 @@ a { color: inherit; text-decoration: none; }
             tag: el.tagName, w: Math.round(r.width), h: Math.round(r.height),
             radius: getComputedStyle(el).borderTopLeftRadius,
             parentRadius: el.parentElement && getComputedStyle(el.parentElement).borderTopLeftRadius,
-            src: (el.currentSrc || el.src || el.poster || '').slice(0, 120),
+            inComposer: !!(el.closest('.gms-composer') || el.closest('[contenteditable="true"]')),
+            inHidden: !!el.closest('.gms-hide'),
+            src: (el.currentSrc || el.src || el.poster || '').slice(0, 60),
           };
         }));
+        console.log('[GMS v1.4.2] msgs đọc được:');
+        console.table((GMS.msgs || []).map((x) => ({
+          out: x.out, text: (x.text || '').slice(0, 40), time: x.time,
+          media: x.media ? x.media.map((md) => (md.vid ? 'video' : 'img') + ':' + (md.src || '').slice(0, 30)).join(' ') : '',
+        })));
       });
     }
 
