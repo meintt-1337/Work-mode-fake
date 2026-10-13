@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.5.1
+// @version      1.6.0
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -27,6 +27,13 @@
  *  - Không nhúng font Roboto / Be Vietnam Pro: dùng font hệ thống.
  *  - Không có giao diện Outlook.
  *
+ * v1.6.0:
+ *  - Mới: Trả lời (Reply) đúng tin nhắn đã chọn và Sửa (Edit) tin của mình. Rê chuột vào tin để hiện nút.
+ *    Hai tính năng điều khiển UI thật của Messenger (đang bị khung Gmail che), lỗi thì chỉ báo một dòng nhỏ.
+ *    Có menu Tampermonkey để bật/tắt riêng.
+ *  - Bộ nhớ: giảm cache blob (150 -> 30) và thu hồi khi đổi/thoát đoạn chat; giữ tối đa 150 tin;
+ *    chỉ vẽ ảnh cho 20 tin cuối (ảnh lazy); content-visibility cho tin cũ; không dựng lại hội thoại khi không đổi;
+ *    chặn tải thêm vô hạn (danh sách chat và lịch sử tin).
  * v1.5.1:
  *  - Sửa gửi ảnh: chờ ảnh preview thật sự xuất hiện, chọn đúng input file, tránh gửi đúp.
  *  - Sửa lặp dòng khi tin có emoji (đọc alt của <img> emoji, so khớp mềm).
@@ -420,6 +427,7 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; gap: 16px; padding: 10px 0;
   border-top: 1px solid #e8eaed; cursor: pointer;
 }
+.gms-msg:not(.open) { content-visibility: auto; contain-intrinsic-size: auto 60px; }
 .gms-msg.open { align-items: flex-start; cursor: default; padding: 14px 0 8px; }
 .gms-msg a { color: #0b57d0; text-decoration: none; }
 .gms-msg a:hover { text-decoration: underline; }
@@ -441,6 +449,9 @@ a { color: inherit; text-decoration: none; }
 .gms-msg-to { font-size: 12px; color: #5e5e5e; margin-bottom: 14px; }
 .gms-msg-body { font-size: 14px; line-height: 20px; color: #1f1f1f; white-space: pre-wrap; word-break: break-word; }
 .gms-msg-body > div { margin-bottom: 14px; }
+.gms-m { position: relative; }
+.gms-macts { display: none; position: absolute; right: 0; top: -8px; background: #fff; border-radius: 20px; box-shadow: 0 1px 3px rgba(60, 64, 67, .3); }
+.gms-m:hover .gms-macts { display: flex; }
 .gms-quote { margin-top: 18px; font-size: 13px; color: #1f1f1f; }
 .gms-dots { display: inline-block; margin-top: 8px; padding: 0 6px; background: #e8eaed; border-radius: 4px; font-size: 12px; line-height: 14px; color: #5f6368; }
 .gms-replybar { display: flex; gap: 12px; margin: 24px 0 8px; }
@@ -456,7 +467,7 @@ a { color: inherit; text-decoration: none; }
 :host(.gms-reply) .gms-replybar { display: none; }
 .gms-replybox { display: none; margin: 0 24px 32px 72px; padding: 12px 16px; border: 1px solid #c4c7c5; border-radius: 16px; background: #fff; box-shadow: 0 1px 3px rgba(60,64,67,.2); }
 :host(.gms-reply) .gms-replybox { display: block; }
-.gms-replyto { font-size: 12px; color: #5e5e5e; margin-bottom: 8px; }
+.gms-replyto { font-size: 12px; color: #5e5e5e; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gms-replybox textarea { display: block; width: 100%; min-height: 72px; max-height: 240px; resize: vertical; border: 0; outline: 0; background: transparent; font: 400 14px/20px var(--md-font-plain); color: #1f1f1f; }
 .gms-replybar2 { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .gms-send { height: 36px; padding: 0 24px; border-radius: 18px; background: #0b57d0; color: #fff; font: 500 14px/20px var(--md-font-brand); }
@@ -466,10 +477,19 @@ a { color: inherit; text-decoration: none; }
 .gms-media.vid .gms-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.25); color: #fff; }
 .gms-media.vid .gms-play .gms-ico { width: 48px; height: 48px; }
 .gms-media.nopost { width: 240px; height: 140px; background: #444746; }
+.gms-media.noimg { width: 160px; height: 90px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #5f6368; }
 .gms-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .gms-files:empty { display: none; }
 .gms-fchip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 10px; background: #e8eaed; border-radius: 12px; font-size: 12px; color: #1f1f1f; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .gms-fchip i { font-style: normal; cursor: pointer; padding: 0 4px; }
+
+.gms-toast {
+  position: absolute; left: 50%; bottom: 32px; transform: translateX(-50%);
+  max-width: 80%; padding: 10px 16px; background: #202124; color: #fff;
+  border-radius: 8px; font-size: 13px; line-height: 18px;
+  opacity: 0; transition: opacity .2s; pointer-events: none !important;
+}
+.gms-toast.show { opacity: 1; }
 `;
 
   const addPageCss = (css) => {
@@ -503,10 +523,16 @@ a { color: inherit; text-decoration: none; }
     favicon: true,
     hideThreadHeader: true,
     forceLight: true, // ép Messenger sang nền sáng (khung chat dễ đổi màu hơn)
+    msgActions: true, // nút Trả lời / Sửa trên từng tin nhắn
   });
 
   const gmGet = (k, d) => { try { return typeof GM_getValue === 'function' ? GM_getValue(k, d) : d; } catch (e) { return d; } };
   const gmSet = (k, v) => { try { if (typeof GM_setValue === 'function') GM_setValue(k, v); } catch (e) { /* bỏ qua */ } };
+
+  // Giới hạn bộ nhớ
+  const MAX_THREADS = 200; // số đoạn chat tối đa được tải thêm vào danh sách
+  const MAX_CACHED = 150; // số tin tối đa giữ trong bộ nhớ của khung đọc
+  const IMG_TAIL = 20; // chỉ vẽ ảnh cho ngần này tin cuối
 
   GMS.DEFAULTS = DEFAULTS;
   GMS.root = document.documentElement;
@@ -525,7 +551,9 @@ a { color: inherit; text-decoration: none; }
     reply: false,
     expanded: new Set(),
     lastConv: '',
+    convSig: '',
     stickUntil: 0,
+    target: null, // { i, mode: 'reply' | 'edit', label }
   };
   GMS.msgs = [];
 
@@ -782,6 +810,7 @@ a { color: inherit; text-decoration: none; }
     let loadMoreAt = 0;
     GMS.loadMore = () => {
       if (Date.now() - loadMoreAt < 800) return;
+      if (state.threads.length >= MAX_THREADS) return; // chặn tải thêm vô hạn
       loadMoreAt = Date.now();
       const links = GMS.threadLinks();
       const sp = links.length && scrollParent(links[links.length - 1].a);
@@ -818,6 +847,9 @@ a { color: inherit; text-decoration: none; }
 
     const ib = (title, icon, { act, sm = true, cls = '', disabled = false } = {}) =>
       `<button class="gms-ib${sm ? ' sm' : ''}${cls ? ' ' + cls : ''}"${act ? ` data-act="${act}"` : ''} title="${title}" aria-label="${title}"${disabled ? ' disabled' : ''}>${ico(icon)}</button>`;
+
+    const mb = (title, icon, mact) =>
+      `<button class="gms-ib sm" data-mact="${mact}" title="${title}" aria-label="${title}">${ico(icon)}</button>`;
 
     const folderHtml = ([key, icon, title]) =>
       `<a class="gms-folder" href="#" data-folder="${key}" title="${title}">${ico(icon)}<span class="gms-fname">${title}</span><span class="gms-count" data-count="${key}"></span></a>`;
@@ -916,9 +948,22 @@ a { color: inherit; text-decoration: none; }
       </div>
     </div>
   </div>
-</div>`;
+</div>
+<div class="gms-toast" id="gms-toast"></div>`;
 
     const q = (sel) => ui.shell.querySelector(sel);
+
+    // Thông báo nhỏ ở đáy khung (thay cho alert).
+    let toastTimer = null;
+    GMS.toast = (msg) => {
+      if (!ui.shell) { console.warn('[GMS]', msg); return; }
+      const t = q('#gms-toast');
+      if (!t) return;
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+    };
 
     function renderFiles() {
       if (!ui.shell) return;
@@ -991,6 +1036,46 @@ a { color: inherit; text-decoration: none; }
       if (i >= 0 && list[i + dir]) openThread(list[i + dir].path);
     }
 
+    // ---------- đích của ô trả lời: trả lời tin cụ thể / sửa tin ----------
+    const snip = (s) => {
+      const t = String(s || '').replace(/\s+/g, ' ').trim();
+      return t.length > 60 ? t.slice(0, 60) + '…' : (t || '[Hình ảnh / video]');
+    };
+
+    function setTarget(t) {
+      state.target = t;
+      const to = q('#gms-replyto');
+      if (!to) return;
+      to.textContent = !t
+        ? 'đến ' + ((state.current && state.current.name) || '')
+        : (t.mode === 'edit' ? 'Đang sửa tin: ' : 'Trả lời tin: ') + t.label;
+    }
+
+    function openReplyBox() {
+      state.reply = true;
+      GMS.applyClasses();
+      setTimeout(() => { const sc = q('#gms-conv'); sc.scrollTop = sc.scrollHeight; q('#gms-reply-text').focus(); }, 60);
+    }
+
+    async function startReply(i) {
+      const x = GMS.msgs[i];
+      if (!x) return;
+      openReplyBox();
+      setTarget({ i, mode: 'reply', label: snip(x.text) });
+      const ok = await GMS.replyTo(i);
+      if (!ok) setTarget(null);
+    }
+
+    function startEdit(i) {
+      const x = GMS.msgs[i];
+      if (!x || !x.out || !x.text) return;
+      openReplyBox();
+      setTarget({ i, mode: 'edit', label: snip(x.text) });
+      const ta = q('#gms-reply-text');
+      ta.value = x.text;
+      setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 80);
+    }
+
     const ACTIONS = {
       home() {
         state.folder = 'inbox';
@@ -1013,23 +1098,37 @@ a { color: inherit; text-decoration: none; }
       prev() { stepThread(-1); },
       next() { stepThread(1); },
       reply() {
-        state.reply = true;
-        GMS.applyClasses();
-        const to = q('#gms-replyto');
-        if (to) to.textContent = 'đến ' + ((state.current && state.current.name) || '');
-        setTimeout(() => { const sc = q('#gms-conv'); sc.scrollTop = sc.scrollHeight; q('#gms-reply-text').focus(); }, 60);
+        openReplyBox();
+        setTarget(null);
       },
       forward() { ACTIONS.reply(); },
       attach() { q('#gms-file').click(); },
-      discard() { q('#gms-reply-text').value = ''; state.files = []; renderFiles(); state.reply = false; GMS.applyClasses(); },
+      discard() {
+        if (state.target && state.target.mode === 'reply') GMS.cancelReply();
+        q('#gms-reply-text').value = ''; state.files = []; renderFiles(); setTarget(null);
+        state.reply = false; GMS.applyClasses();
+      },
       send() {
         const ta = q('#gms-reply-text');
         const text = ta.value.trim();
         const files = state.files || [];
+
+        // Chế độ sửa tin: gửi bản sửa qua UI thật của Messenger.
+        if (state.target && state.target.mode === 'edit') {
+          if (!text) return;
+          const i = state.target.i;
+          const old = GMS.msgs[i];
+          if (old && old.text === text) { GMS.toast('Nội dung không thay đổi.'); return; }
+          ta.value = ''; setTarget(null);
+          state.reply = false; GMS.applyClasses();
+          GMS.editMessage(i, text).then((ok) => { if (ok) GMS.toast('Đã gửi bản sửa.'); });
+          return;
+        }
+
         if (!text && !files.length) return;
         const ok = files.length ? GMS.sendFiles(files, text) : GMS.sendMessage(text);
-        if (!ok) { if (files.length) alert('Không tìm thấy ô tải ảnh của Messenger. Thử mở lại đoạn chat.'); return; }
-        ta.value = ''; state.files = []; renderFiles();
+        if (!ok) { if (files.length) GMS.toast('Không tìm thấy ô tải ảnh của Messenger. Thử mở lại đoạn chat.'); return; }
+        ta.value = ''; state.files = []; renderFiles(); setTarget(null);
         // Giữ ô trả lời mở để gõ tiếp như chat thật.
         state.stickUntil = Date.now() + 5000;
         GMS.applyClasses();
@@ -1038,6 +1137,15 @@ a { color: inherit; text-decoration: none; }
     };
 
     function onShellClick(e) {
+      const mbtn = e.target.closest('[data-mact]');
+      if (mbtn) {
+        e.preventDefault(); e.stopPropagation();
+        const holder = mbtn.closest('[data-mid]');
+        const i = holder ? +holder.dataset.mid : -1;
+        if (i >= 0) { mbtn.dataset.mact === 'edit' ? startEdit(i) : startReply(i); }
+        return;
+      }
+
       const starBtn = e.target.closest('[data-star]');
       if (starBtn) { e.preventDefault(); e.stopPropagation(); toggleStar(starBtn.dataset.star); return; }
 
@@ -1125,31 +1233,41 @@ a { color: inherit; text-decoration: none; }
     function avatar(out) {
       const cur = state.current || {};
       const url = out ? GMS.settings.myAvatar : cur.avatar;
-      if (url) return `<img class="gms-av" src="${esc(url)}" alt="" referrerpolicy="no-referrer">`;
+      if (url) return `<img class="gms-av" src="${esc(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
       const letter = String(out ? (GMS.settings.avatar || 'M') : (cur.name || '?')).trim().charAt(0).toUpperCase();
       return `<span class="gms-av${out ? ' me' : ''}">${esc(letter)}</span>`;
     }
 
-    const mediaHtml = (g) => (g.media || []).map((md) =>
-      `<span class="gms-media${md.vid ? ' vid' : ''}${md.vid && !md.src ? ' nopost' : ''}" data-mi="${md.i}" title="Mở bản gốc">${md.src ? `<img src="${esc(md.src)}" alt="" referrerpolicy="no-referrer">` : ''}${md.vid ? `<span class="gms-play">${ico('play')}</span>` : ''}</span>`).join('');
+    // show = false: tin cũ, không vẽ ảnh để tiết kiệm bộ nhớ (video luôn dùng poster nhẹ).
+    const mediaHtml = (g, show) => (g.media || []).map((md) =>
+      (!show && !md.vid)
+        ? `<span class="gms-media noimg" data-mi="${md.i}" title="Mở bản gốc">Hình ảnh</span>`
+        : `<span class="gms-media${md.vid ? ' vid' : ''}${md.vid && !md.src ? ' nopost' : ''}" data-mi="${md.i}" title="Mở bản gốc">${md.src ? `<img src="${esc(md.src)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : ''}${md.vid ? `<span class="gms-play">${ico('play')}</span>` : ''}</span>`).join('');
 
     function closedMsg(x, i, them) {
       return `<div class="gms-msg" data-i="${i}">${avatar(x.out)}<div class="gms-msg-b"><div class="gms-msg-n">${esc(nameOf(x, them))}</div><div class="gms-msg-s">${esc((x.text || '[Hình ảnh / video]').replace(/\s+/g, ' '))}</div></div><span class="gms-msg-t">${esc(x.time)}</span><span class="gms-mstar">${ico('star_border')}</span></div>`;
     }
 
-    function openMsg(group, i, them, email, prev) {
+    function openMsg(group, i, them, email, prev, imgFrom) {
       const x = group[0];
       const mail = x.out ? 'me@gmail.com' : email;
+      const actions = GMS.settings.msgActions;
       let quote = '';
       if (prev) {
         const d = new Date();
         const pm = prev.out ? 'me@gmail.com' : email;
         quote = `<div class="gms-quote">Vào ${WD[d.getDay()]}, ${d.getDate()} thg ${d.getMonth() + 1}, ${d.getFullYear()} vào lúc ${esc(prev.time || group[group.length - 1].time)} ${esc(nameOf(prev, them))} &lt;<a href="mailto:${esc(pm)}">${esc(pm)}</a>&gt; đã viết:<br><span class="gms-dots">···</span></div>`;
       }
+      const body = group.map((g, k) => {
+        const acts = (actions && g.el)
+          ? `<span class="gms-macts">${mb('Trả lời tin này', 'reply', 'reply')}${g.out && g.text ? mb('Sửa tin này', 'edit', 'edit') : ''}</span>`
+          : '';
+        return `<div class="gms-m" data-mid="${i + k}">${g.text ? linkify(g.text) : ''}${mediaHtml(g, i + k >= imgFrom)}${acts}</div>`;
+      }).join('');
       return `<div class="gms-msg open" data-i="${i}"${prev ? ' data-fixed="1"' : ''}>${avatar(x.out)}<div class="gms-msg-b">
 <div class="gms-msg-top"><span class="gms-msg-n">${esc(nameOf(x, them))}</span><span class="gms-msg-e">&lt;${esc(mail)}&gt;</span><span class="gms-spacer"></span><span class="gms-msg-t">${esc(group[group.length - 1].time)}</span></div>
 <div class="gms-msg-to">đến ${x.out ? esc(them) : 'tôi'} ▾</div>
-<div class="gms-msg-body">${group.map((g) => `<div>${g.text ? linkify(g.text) : ''}${mediaHtml(g)}</div>`).join('')}</div>${quote}
+<div class="gms-msg-body">${body}</div>${quote}
 </div></div>`;
     }
 
@@ -1158,20 +1276,37 @@ a { color: inherit; text-decoration: none; }
       if (!msgs.length) return '<div class="gms-empty">Đang tải cuộc trò chuyện…</div>';
       const them = (state.current && state.current.name) || 'Người dùng';
       const email = (fold(them).replace(/[^a-z0-9]/g, '') || 'user') + '@gmail.com';
+      const imgFrom = Math.max(0, msgs.length - IMG_TAIL);
       let start = msgs.length - 1;
       while (start > 0 && msgs[start - 1].out === msgs[start].out) start--;
       let html = `<button class="gms-sum">${GMS.SPARKLE}Tóm tắt email này</button><button class="gms-sum" data-act="olderMsgs">${ico('refresh')}Tải tin cũ hơn</button>`;
       msgs.slice(0, start).forEach((x, i) => {
-        html += state.expanded.has(i) ? openMsg([x], i, them, email, null) : closedMsg(x, i, them);
+        html += state.expanded.has(i) ? openMsg([x], i, them, email, null, imgFrom) : closedMsg(x, i, them);
       });
-      html += openMsg(msgs.slice(start), start, them, email, start > 0 ? msgs[start - 1] : { out: !msgs[start].out, text: '', time: '' });
+      html += openMsg(msgs.slice(start), start, them, email, start > 0 ? msgs[start - 1] : { out: !msgs[start].out, text: '', time: '' }, imgFrom);
       html += `<div class="gms-replybar"><button class="gms-rb" data-act="reply">${ico('reply')}Trả lời</button><button class="gms-rb" data-act="forward">${ico('forward')}Chuyển tiếp</button><button class="gms-rb round" title="Phản hồi bằng biểu tượng cảm xúc">${ico('mood')}</button></div>`;
       return html;
     }
 
+    // Chữ ký rẻ của hội thoại: nếu không đổi thì khỏi dựng chuỗi HTML (đỡ rác bộ nhớ mỗi tick).
+    function convSig() {
+      const msgs = GMS.msgs || [];
+      const cur = state.current ? state.current.path : '';
+      let s = cur + '|' + msgs.length + '|' + state.expanded.size + '|' + (GMS.settings.msgActions ? 1 : 0) + '|';
+      for (const x of msgs) {
+        s += (x.out ? 'o' : 'i') + (x.text ? x.text.length : 0) + ':' + (x.time || '') +
+          (x.media ? 'm' + x.media.map((md) => (md.src ? md.src.length : 0) + (md.i < 0 ? 'd' : '')).join(',') : '') +
+          (x.el ? 'e' : '') + ';';
+      }
+      return s;
+    }
+
     GMS.renderConv = (force) => {
       if (!ui.shell || state.mode !== 'thread') return;
+      const sig = convSig();
+      if (!force && sig === state.convSig) return;
       const html = convHtml();
+      state.convSig = sig;
       if (!force && html === state.lastConv) return;
       const sc = q('#gms-conv');
       const oldH = sc.scrollHeight, oldT = sc.scrollTop;
@@ -1215,7 +1350,8 @@ a { color: inherit; text-decoration: none; }
     function openThread(path) {
       const rt = q('#gms-reply-text'); if (rt) rt.value = '';
       state.files = []; renderFiles();
-      state.reply = false; state.expanded.clear(); state.lastConv = '';
+      state.reply = false; state.expanded.clear(); state.lastConv = ''; state.convSig = '';
+      state.target = null;
       state.stickUntil = Date.now() + 2500; GMS.msgs = [];
       GMS.resetMsgCache(); GMS.prepended = 0;
       const t = state.threads.find((x) => x.path === path) || { path, name: '' };
@@ -1236,7 +1372,12 @@ a { color: inherit; text-decoration: none; }
     }
 
     GMS.setMode = (m) => {
-      if (m === 'list') state.reply = false;
+      if (m === 'list') {
+        state.reply = false; state.target = null;
+        // Thoát khung đọc: giải phóng tin, ảnh blob và cache.
+        GMS.msgs = []; state.lastConv = ''; state.convSig = '';
+        if (GMS.resetMsgCache) GMS.resetMsgCache();
+      }
       state.mode = m;
       GMS.applyClasses();
       if (m === 'thread') setTimeout(GMS.tick, 300); else GMS.render(true);
@@ -1443,11 +1584,8 @@ a { color: inherit; text-decoration: none; }
       }, 500);
     }
 
-    // Gõ chữ vào ô nhập thật của Messenger rồi nhấn Enter.
-    GMS.sendMessage = (text) => {
-      const m = document.querySelector('.gms-main');
-      const tb = m && textbox(m);
-      if (!tb) return false;
+    // Gõ chữ vào một ô contenteditable (xóa chữ cũ, chèn dòng mới).
+    function typeInto(tb, text) {
       tb.focus();
       document.execCommand('selectAll', false);
       document.execCommand('delete', false);
@@ -1455,6 +1593,14 @@ a { color: inherit; text-decoration: none; }
         if (i) document.execCommand('insertLineBreak', false);
         if (line) document.execCommand('insertText', false, line);
       });
+    }
+
+    // Gõ chữ vào ô nhập thật của Messenger rồi nhấn Enter.
+    GMS.sendMessage = (text) => {
+      const m = document.querySelector('.gms-main');
+      const tb = m && textbox(m);
+      if (!tb) return false;
+      typeInto(tb, text);
       setTimeout(() => submit(m, tb), 80);
       return true;
     };
@@ -1493,7 +1639,138 @@ a { color: inherit; text-decoration: none; }
       el.click();
     };
 
+    // ---------- Trả lời / Sửa tin qua UI thật của Messenger ----------
+    // Khung Gmail che hết Messenger nên mọi thao tác dưới đây là .click() ngầm. Lỗi thì chỉ báo toast.
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = async (fn, ms = 2500) => {
+      const t0 = Date.now();
+      for (;;) {
+        let v = null;
+        try { v = fn(); } catch (e) { /* thử lại */ }
+        if (v) return v;
+        if (Date.now() - t0 > ms) return null;
+        await sleep(80);
+      }
+    };
+    const fire = (el, types) => types.forEach((t) => {
+      const C = /^pointer/.test(t) && window.PointerEvent ? PointerEvent : MouseEvent;
+      el.dispatchEvent(new C(t, { bubbles: true, cancelable: true, view: window, pointerType: 'mouse' }));
+    });
+    const hover = (el) => fire(el, ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove']);
+    const outsideShell = (x) => !(ui.shell && ui.shell.contains(x)) && !(ui.host && ui.host.contains(x));
+    const findBtn = (scope, re) => [...scope.querySelectorAll('[aria-label]')]
+      .find((x) => outsideShell(x) && re.test(x.getAttribute('aria-label') || ''));
+    const REPLY_RE = /^(trả lời|reply)$/i;
+    const MORE_RE = /^(xem thêm|more|tùy chọn khác|more options|tùy chọn|options)/i;
+    const menuItem = (re) => {
+      for (const it of document.querySelectorAll('[role="menuitem"], [role="menu"] [role="button"]')) {
+        if (outsideShell(it) && re.test((it.textContent || '').trim())) return it;
+      }
+      return null;
+    };
+    const pressKey = (el, key, code, kc) => {
+      const ev = { key, code, keyCode: kc, which: kc, bubbles: true, cancelable: true };
+      el.dispatchEvent(new KeyboardEvent('keydown', ev));
+      el.dispatchEvent(new KeyboardEvent('keyup', ev));
+    };
+
+    // Hàng tin nhắn: tổ tiên đầu tiên gần full-width của bong bóng (chứa các nút khi rê chuột).
+    function rowOf(m, el) {
+      const mr = m.getBoundingClientRect();
+      let n = el;
+      for (let i = 0; i < 14 && n && n !== m; i++, n = n.parentElement) {
+        const r = n.getBoundingClientRect();
+        if (r.width >= mr.width * 0.8 && r.height >= 20) return n;
+      }
+      return el.parentElement || el;
+    }
+
+    let busy = false;
+    async function withReal(i, fn) {
+      if (busy) return false;
+      const x = GMS.msgs[i];
+      const m = document.querySelector('.gms-main');
+      if (!m || !x || !x.el || !x.el.isConnected) {
+        GMS.toast('Tin này không còn trong khung Messenger. Thử mở lại đoạn chat.');
+        return false;
+      }
+      busy = true;
+      root.classList.add('gms-unclip');
+      try {
+        return await fn(m, x.el, rowOf(m, x.el), x);
+      } catch (e) {
+        console.warn('[GMS] thao tác tin nhắn lỗi:', e);
+        GMS.toast('Không thao tác được với Messenger (giao diện có thể đã đổi).');
+        return false;
+      } finally {
+        // Chỉ dọn menu bị kẹt, tránh Escape hủy mất bản sửa / trả lời vừa tạo.
+        if (document.querySelector('[role="menu"]')) {
+          pressKey(document.activeElement || document.body, 'Escape', 'Escape', 27);
+        }
+        setTimeout(() => root.classList.remove('gms-unclip'), 300);
+        busy = false;
+      }
+    }
+
+    GMS.replyTo = (i) => withReal(i, async (m, el, row) => {
+      hover(el); hover(row);
+      let btn = await waitFor(() => findBtn(row, REPLY_RE), 1500);
+      if (!btn) {
+        const more = await waitFor(() => findBtn(row, MORE_RE), 1500);
+        if (more) {
+          more.click();
+          const it = await waitFor(() => menuItem(/^(trả lời|reply)/i), 1500);
+          if (it) btn = it;
+        }
+      }
+      if (!btn) { GMS.toast('Không tìm thấy nút Trả lời của Messenger cho tin này.'); return false; }
+      btn.click();
+      await sleep(150);
+      textbox(m)?.focus();
+      return true;
+    });
+
+    GMS.editMessage = (i, text) => withReal(i, async (m, el, row) => {
+      const mainTb = textbox(m);
+      hover(el); hover(row);
+      const more = await waitFor(() => findBtn(row, MORE_RE), 1500);
+      if (!more) { GMS.toast('Không tìm thấy menu của tin này trong Messenger.'); return false; }
+      more.click();
+      const it = await waitFor(() => menuItem(/^(chỉnh sửa|sửa|edit)/i), 1500);
+      if (!it) { GMS.toast('Tin này không sửa được (quá thời hạn hoặc không phải của bạn).'); return false; }
+      it.click();
+      const box = await waitFor(() => [...document.querySelectorAll('[contenteditable="true"][role="textbox"]')]
+        .find((t) => t !== mainTb && outsideShell(t)), 2500);
+      if (!box) { GMS.toast('Không mở được ô sửa tin của Messenger.'); return false; }
+      typeInto(box, text);
+      await sleep(120);
+      pressKey(box, 'Enter', 'Enter', 13);
+      const gone = await waitFor(() => !box.isConnected || box.getAttribute('contenteditable') !== 'true', 2500);
+      if (!gone) {
+        const save = findBtn(document, /^(lưu|save|nhấn enter để lưu|press enter to save)/i);
+        if (save) { save.click(); await waitFor(() => !box.isConnected, 2000); }
+      }
+      if (box.isConnected && box.getAttribute('contenteditable') === 'true') {
+        GMS.toast('Chưa lưu được bản sửa. Hãy thử lại.');
+        return false;
+      }
+      return true;
+    });
+
+    // Hủy phần "đang trả lời" trên ô soạn tin thật (nếu tìm thấy nút đóng).
+    GMS.cancelReply = () => {
+      const m = document.querySelector('.gms-main');
+      if (!m) return;
+      const b = findBtn(m, /(đóng|bỏ|hủy|close|cancel|remove).*(trả lời|reply)|(trả lời|reply).*(đóng|bỏ|hủy|close|cancel)/i);
+      if (b) b.click();
+    };
+
     const blobCache = new Map();
+    const MAX_BLOBS = 30;
+    function clearBlobs() {
+      for (const u of blobCache.values()) { if (u) { try { URL.revokeObjectURL(u); } catch (e) { /* bỏ qua */ } } }
+      blobCache.clear();
+    }
     function dataToBlobUrl(uri) {
       const key = uri.length + ':' + uri.slice(-48);
       let u = blobCache.get(key);
@@ -1505,7 +1782,7 @@ a { color: inherit; text-decoration: none; }
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         u = URL.createObjectURL(new Blob([bytes], { type: mime }));
       } catch (e) { u = ''; }
-      if (blobCache.size > 150) {
+      if (blobCache.size > MAX_BLOBS) {
         const k = blobCache.keys().next().value;
         if (blobCache.get(k)) URL.revokeObjectURL(blobCache.get(k));
         blobCache.delete(k);
@@ -1553,11 +1830,11 @@ a { color: inherit; text-decoration: none; }
         const text = lines.join('\n');
         if (E2EE_RE.test(text.trim())) continue;
         if (!text) {
-          if (att) acc.push({ top: r.top, out: SELF_RE.test(who), text: '', own, att: true });
+          if (att) acc.push({ top: r.top, out: SELF_RE.test(who), text: '', own, att: true, el: b });
           continue;
         }
-        if (who !== null) acc.push({ top: r.top, out: SELF_RE.test(who), text, own });
-        else plain.push({ top: r.top, out: r.left + r.width / 2 > mid && r.right > mr.right - mr.width * 0.25, text });
+        if (who !== null) acc.push({ top: r.top, out: SELF_RE.test(who), text, own, el: b });
+        else plain.push({ top: r.top, out: r.left + r.width / 2 > mid && r.right > mr.right - mr.width * 0.25, text, el: b });
       }
 
       // 2) Ghép mỗi bản "chữ ẩn" với bản hiển thị cùng nội dung gần nhất rồi bỏ bản thừa (chống lặp tin).
@@ -1570,7 +1847,7 @@ a { color: inherit; text-decoration: none; }
           const d = Math.abs(p.top - a.top);
           if (d < bd) { bd = d; best = k; }
         });
-        if (best >= 0) { used.add(best); a.top = plain[best].top; }
+        if (best >= 0) { used.add(best); a.top = plain[best].top; a.el = plain[best].el; }
       }
       const accUniq = acc.filter((a, i) =>
         !acc.slice(0, i).some((b) => same(b.text, a.text) && b.own === a.own && Math.abs(b.top - a.top) < 4));
@@ -1633,7 +1910,7 @@ a { color: inherit; text-decoration: none; }
           if (!it.hasMedia) msgs.push({ out: it.out, text: '[Hình ảnh / video]', time });
         }
         else if (it.text === undefined) time = it.time;
-        else msgs.push({ out: it.out, text: it.text, time: it.own || time });
+        else msgs.push({ out: it.out, text: it.text, time: it.own || time, el: it.el });
       }
       return msgs;
     };
@@ -1645,15 +1922,17 @@ a { color: inherit; text-decoration: none; }
       ((x.media || x.text === '[Hình ảnh / video]')
         ? 'M' + (x.media ? x.media.map((md) => (md.vid ? 'v' : 'p')).join('') : 'p')
         : sig(x.text).slice(0, 24));
-    const MAX_CACHED = 500;
     GMS.msgCache = { path: null, list: [] };
-    GMS.resetMsgCache = () => { GMS.msgCache = { path: null, list: [] }; };
+    GMS.resetMsgCache = () => { GMS.msgCache = { path: null, list: [] }; clearBlobs(); };
     GMS.prepended = 0;
 
-    // Tin chỉ còn trong cache (đã rời khỏi DOM) thì không còn phần tử để mở bản gốc.
-    const detach = (list) => list.map((x) => (x.media
-      ? { ...x, media: x.media.map((md) => ({ ...md, i: -1 })) }
-      : x));
+    // Tin chỉ còn trong cache (đã rời khỏi DOM) thì không còn phần tử để mở bản gốc / thao tác.
+    const detach = (list) => list.map((x) => {
+      if (!x.media && !x.el) return x;
+      const y = { ...x, el: null };
+      if (x.media) y.media = x.media.map((md) => ({ ...md, i: -1 }));
+      return y;
+    });
 
     GMS.mergeMsgs = (fresh) => {
       const st = GMS.state;
@@ -1662,7 +1941,7 @@ a { color: inherit; text-decoration: none; }
       if (c.path !== path) { c.path = path; c.list = []; }
       if (!fresh.length) return c.list;
       const old = c.list;
-      if (!old.length) { c.list = fresh.slice(); return c.list; }
+      if (!old.length) { c.list = fresh.slice(-MAX_CACHED); return c.list; }
 
       const fk = fresh.map(mkey);
       const ok = old.map(mkey);
@@ -1686,7 +1965,7 @@ a { color: inherit; text-decoration: none; }
           if (len >= need && len > bestLen) { bestOff = off; bestLen = len; if (len === maxPossible) break; }
         }
       }
-      if (bestOff === null) { c.list = fresh.slice(); return c.list; } // không khớp: thay hẳn
+      if (bestOff === null) { c.list = fresh.slice(-MAX_CACHED); return c.list; } // không khớp: thay hẳn
 
       const head = bestOff > 0 ? detach(old.slice(0, bestOff)) : [];
       const tail = bestOff + F < O ? detach(old.slice(bestOff + F)) : [];
@@ -1696,7 +1975,12 @@ a { color: inherit; text-decoration: none; }
         GMS.prepended += n;
         st.expanded = new Set([...st.expanded].map((i) => i + n));
       }
-      if (merged.length > MAX_CACHED) merged = merged.slice(-MAX_CACHED);
+      if (merged.length > MAX_CACHED) {
+        const cut = merged.length - MAX_CACHED;
+        merged = merged.slice(cut);
+        // Đã cắt `cut` tin ở đầu: dời chỉ số các tin đang mở cho khớp.
+        st.expanded = new Set([...st.expanded].map((i) => i - cut).filter((i) => i >= 0));
+      }
       c.list = merged;
       return merged;
     };
@@ -1719,6 +2003,7 @@ a { color: inherit; text-decoration: none; }
     GMS.loadOlder = () => {
       const now = Date.now();
       if (now - olderAt < 1500) return false;
+      if (GMS.msgCache.list.length >= MAX_CACHED) { GMS.toast && GMS.toast('Đã tải đủ ' + MAX_CACHED + ' tin gần nhất.'); olderAt = now; return false; }
       const m = document.querySelector('.gms-main');
       const sp = m && findScroller(m);
       if (!sp) return false;
@@ -1863,6 +2148,7 @@ a { color: inherit; text-decoration: none; }
       if (!settings.enabled) state.mode = 'list';
       if (!settings.hideThreadHeader) document.querySelectorAll('.gms-hide').forEach((x) => x.classList.remove('gms-hide'));
       if (!settings.forceLight) restoreTheme();
+      state.convSig = ''; // dựng lại hội thoại (bật/tắt nút Trả lời / Sửa)
       refresh();
     }
 
@@ -1889,6 +2175,7 @@ a { color: inherit; text-decoration: none; }
       GM_registerMenuCommand('Bật / tắt icon Gmail trên tab', () => saveSettings({ favicon: !settings.favicon }));
       GM_registerMenuCommand('Ẩn / hiện thanh tên trong đoạn chat', () => saveSettings({ hideThreadHeader: !settings.hideThreadHeader }));
       GM_registerMenuCommand('Ép khung chat sang nền sáng (bật / tắt)', () => saveSettings({ forceLight: !settings.forceLight }));
+      GM_registerMenuCommand('Bật / tắt nút Trả lời & Sửa tin', () => saveSettings({ msgActions: !settings.msgActions }));
       GM_registerMenuCommand('Debug: in thông tin ảnh/video trong chat', () => {
         const m = document.querySelector('.gms-main');
         if (!m) return console.log('[GMS] chưa có .gms-main');
@@ -1903,9 +2190,9 @@ a { color: inherit; text-decoration: none; }
             src: (el.currentSrc || el.src || el.poster || '').slice(0, 60),
           };
         }));
-        console.log('[GMS v1.5.1] msgs đọc được:');
+        console.log('[GMS v1.6.0] msgs đọc được:');
         console.table((GMS.msgs || []).map((x) => ({
-          out: x.out, text: (x.text || '').slice(0, 40), time: x.time,
+          out: x.out, text: (x.text || '').slice(0, 40), time: x.time, hasEl: !!x.el,
           media: x.media ? x.media.map((md) => (md.vid ? 'video' : 'img') + ':' + (md.src || '').slice(0, 30)).join(' ') : '',
         })));
       });
