@@ -1654,7 +1654,7 @@ a { color: inherit; text-decoration: none; }
     };
     const fire = (el, types) => types.forEach((t) => {
       const C = /^pointer/.test(t) && window.PointerEvent ? PointerEvent : MouseEvent;
-      el.dispatchEvent(new C(t, { bubbles: true, cancelable: true, view: window, pointerType: 'mouse' }));
+      el.dispatchEvent(new C(t, { bubbles: true, cancelable: true, pointerType: 'mouse' }));
     });
     const hover = (el) => fire(el, ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove']);
     const outsideShell = (x) => !(ui.shell && ui.shell.contains(x)) && !(ui.host && ui.host.contains(x));
