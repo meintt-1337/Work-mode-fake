@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.5.0
+// @version      1.5.1
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -26,6 +26,12 @@
  *  - Không có popup: dùng menu Tampermonkey (bấm icon Tampermonkey khi đang ở trang Messenger).
  *  - Không nhúng font Roboto / Be Vietnam Pro: dùng font hệ thống.
  *  - Không có giao diện Outlook.
+ *
+ * v1.5.1:
+ *  - Sửa gửi ảnh: chờ ảnh preview thật sự xuất hiện, chọn đúng input file, tránh gửi đúp.
+ *  - Sửa lặp dòng khi tin có emoji (đọc alt của <img> emoji, so khớp mềm).
+ *  - Bỏ dòng rác "Được mã hóa đầu cuối" bị nhận nhầm thành tin nhắn.
+ *  - Enter để gửi (Shift+Enter xuống dòng), ô trả lời không đóng sau khi gửi.
  */
 (function () {
   'use strict';
@@ -900,7 +906,7 @@ a { color: inherit; text-decoration: none; }
     <div class="gms-replybox">
       <div class="gms-replyto" id="gms-replyto"></div>
       <div class="gms-files" id="gms-files"></div>
-      <textarea id="gms-reply-text" placeholder="Nhập nội dung trả lời (có thể dán ảnh)" spellcheck="false"></textarea>
+      <textarea id="gms-reply-text" placeholder="Nhập nội dung trả lời, Enter để gửi, Shift+Enter xuống dòng (có thể dán ảnh)" spellcheck="false"></textarea>
       <input type="file" id="gms-file" accept="image/*,video/*" multiple hidden>
       <div class="gms-replybar2">
         <button class="gms-send" data-act="send">Gửi</button>
@@ -1024,8 +1030,10 @@ a { color: inherit; text-decoration: none; }
         const ok = files.length ? GMS.sendFiles(files, text) : GMS.sendMessage(text);
         if (!ok) { if (files.length) alert('Không tìm thấy ô tải ảnh của Messenger. Thử mở lại đoạn chat.'); return; }
         ta.value = ''; state.files = []; renderFiles();
-        state.reply = false; state.stickUntil = Date.now() + 5000;
+        // Giữ ô trả lời mở để gõ tiếp như chat thật.
+        state.stickUntil = Date.now() + 5000;
         GMS.applyClasses();
+        setTimeout(() => { const sc = q('#gms-conv'); if (sc) sc.scrollTop = sc.scrollHeight; ta.focus(); }, 60);
       },
     };
 
@@ -1069,8 +1077,10 @@ a { color: inherit; text-decoration: none; }
 
     function onShellKey(e) {
       if (e.target.id === 'gms-reply-text') {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ACTIONS.send(); }
-        else if (e.key === 'Escape') { e.preventDefault(); ACTIONS.discard(); }
+        // Enter = gửi, Shift+Enter = xuống dòng. Bỏ qua Enter khi bộ gõ (Telex/VNI) đang chốt chữ.
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+          e.preventDefault(); ACTIONS.send();
+        } else if (e.key === 'Escape') { e.preventDefault(); ACTIONS.discard(); }
         e.stopPropagation();
         return;
       }
@@ -1382,6 +1392,28 @@ a { color: inherit; text-decoration: none; }
     // Dấu ":" là tùy chọn: tin chỉ có ảnh/video/sticker thì nhãn kết thúc ngay sau giờ.
     const ACC_RE = /^(?:(?:Nhập|Enter)\s*[,.]\s*)?(?:Tin nhắn do (.{1,80}?) gửi lúc|Message (?:sent )?(?:by|from) (.{1,80}?) (?:at|sent at))\s*(\d{1,2}:\d{2}(?:\s?[AP]M)?)\s*(?::\s*|[.,]?\s*$)/i;
     const SELF_RE = /^(bạn|you)$/i;
+    // Dòng thông báo mã hóa cạnh ô soạn tin, không phải tin nhắn.
+    const E2EE_RE = /^(được mã hóa đầu cuối|tin nhắn và cuộc gọi được mã hóa đầu cuối.*|end-to-end encrypted|messages and calls are end-to-end encrypted.*)$/i;
+
+    // Lấy chữ kèm alt của emoji <img> (textContent bỏ qua <img> nên mất emoji).
+    const textOf = (el) => {
+      let s = '';
+      const walk = (n) => {
+        if (n.nodeType === 3) s += n.nodeValue;
+        else if (n.nodeName === 'IMG') s += n.alt || '';
+        else n.childNodes.forEach(walk);
+      };
+      walk(el);
+      return s.replace(/\u00a0/g, ' ').trim();
+    };
+    // Chữ ký "mềm": chỉ giữ chữ và số, bỏ emoji/dấu câu để hai bản của cùng một tin luôn khớp nhau.
+    const sig = (s) => String(s || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    const same = (a, b) => {
+      const x = sig(a), y = sig(b);
+      if (x === y) return true;
+      const n = Math.min(x.length, y.length);
+      return n >= 3 && (x.startsWith(y) || y.startsWith(x));
+    };
 
     GMS.mediaEls = [];
     GMS.peek = { on: false, seen: false, at: 0 };
@@ -1390,6 +1422,13 @@ a { color: inherit; text-decoration: none; }
       const m = document.querySelector('.gms-main');
       if (m) textbox(m)?.focus();
     };
+
+    // Có ảnh/video đang chờ gửi (preview nằm sát ô soạn tin, không tính ảnh đã gửi ở phía trên).
+    function hasPending(m, tb) {
+      const tbTop = tb.getBoundingClientRect().top;
+      return [...m.querySelectorAll('img[src^="blob:"], video[src^="blob:"]')]
+        .some((i) => i.getBoundingClientRect().top > tbTop - 140);
+    }
 
     // Nhấn Enter trong ô nhập thật của Messenger (có nút gửi dự phòng).
     function submit(m, tb) {
@@ -1400,7 +1439,7 @@ a { color: inherit; text-decoration: none; }
       setTimeout(() => {
         const btn = [...m.querySelectorAll('[aria-label]')].find((x) =>
           /^(nhấn enter để gửi|press enter to send|gửi|send)$/i.test(x.getAttribute('aria-label')));
-        if (btn && ((tb.textContent || '').trim() || m.querySelector('img[src^="blob:"]'))) btn.click();
+        if (btn && ((tb.textContent || '').trim() || hasPending(m, tb))) btn.click();
       }, 500);
     }
 
@@ -1420,23 +1459,29 @@ a { color: inherit; text-decoration: none; }
       return true;
     };
 
-    // Đưa tệp vào ô chọn tệp ẩn của Messenger, đợi nó tải lên rồi gửi.
+    // Đưa tệp vào ô chọn tệp ẩn của Messenger, đợi preview xuất hiện rồi mới gửi.
     GMS.sendFiles = (files, text) => {
       const m = document.querySelector('.gms-main');
       const tb = m && textbox(m);
       if (!tb) return false;
-      const input = (m.querySelector('input[type="file"]')) ||
+      const inputs = [...m.querySelectorAll('input[type="file"]')];
+      const input = inputs.find((x) => /image|video/.test(x.accept || '')) || inputs[0] ||
         [...document.querySelectorAll('input[type="file"]')].find((x) => !(ui.shell && ui.shell.contains(x)));
       if (!input) return false;
+
       const dt = new DataTransfer();
       files.forEach((f) => dt.items.add(f));
       input.files = dt.files;
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      setTimeout(() => {
-        if (text) GMS.sendMessage(text);
-        else submit(m, tb);
-      }, 1400);
+
+      // Đợi ảnh preview xuất hiện sát ô soạn tin (tối đa 8 giây) rồi mới gửi.
+      const t0 = Date.now();
+      const timer = setInterval(() => {
+        if (!hasPending(m, tb) && Date.now() - t0 < 8000) return;
+        clearInterval(timer);
+        setTimeout(() => { if (text) GMS.sendMessage(text); else submit(m, tb); }, 500);
+      }, 300);
       return true;
     };
 
@@ -1475,6 +1520,7 @@ a { color: inherit; text-decoration: none; }
       if (cur && cur.path && !norm(location.pathname).endsWith(norm(cur.path))) return [];
       const mr = m.getBoundingClientRect();
       const mid = mr.left + mr.width / 2;
+      const tbr = textbox(m)?.getBoundingClientRect();
       GMS.mediaEls = [];
 
       // 1) Đọc chữ. Mỗi tin có thể xuất hiện 2 lần: bản "chữ ẩn" (có người gửi + giờ) và bản hiển thị.
@@ -1484,8 +1530,10 @@ a { color: inherit; text-decoration: none; }
         if (b.closest('[contenteditable="true"]') || b.parentElement.closest('.gms-bubble')) continue;
         const r = b.getBoundingClientRect();
         if (r.width < 1) continue;
+        // Bỏ các "bubble" nằm trong / sát ô soạn tin (vd. dòng "Được mã hóa đầu cuối").
+        if (b.closest('.gms-composer') || (tbr && r.top >= tbr.top - 8)) continue;
         const leaves = [...b.querySelectorAll('[dir="auto"]')].filter((x) => !x.querySelector('[dir="auto"]'));
-        const raw = leaves.length ? leaves.map((x) => x.textContent.trim()) : [b.textContent.trim()];
+        const raw = leaves.length ? leaves.map((x) => textOf(x)) : [textOf(b)];
         const lines = [];
         let who = null;
         let own = '';
@@ -1503,6 +1551,7 @@ a { color: inherit; text-decoration: none; }
           if (t && t !== lines[lines.length - 1]) lines.push(t);
         }
         const text = lines.join('\n');
+        if (E2EE_RE.test(text.trim())) continue;
         if (!text) {
           if (att) acc.push({ top: r.top, out: SELF_RE.test(who), text: '', own, att: true });
           continue;
@@ -1517,14 +1566,14 @@ a { color: inherit; text-decoration: none; }
         let best = -1;
         let bd = Infinity;
         plain.forEach((p, k) => {
-          if (used.has(k) || p.text !== a.text) return;
+          if (used.has(k) || !same(p.text, a.text)) return;
           const d = Math.abs(p.top - a.top);
           if (d < bd) { bd = d; best = k; }
         });
         if (best >= 0) { used.add(best); a.top = plain[best].top; }
       }
       const accUniq = acc.filter((a, i) =>
-        !acc.slice(0, i).some((b) => b.text === a.text && b.own === a.own && Math.abs(b.top - a.top) < 4));
+        !acc.slice(0, i).some((b) => same(b.text, a.text) && b.own === a.own && Math.abs(b.top - a.top) < 4));
       const items = [...accUniq, ...plain.filter((_, k) => !used.has(k))];
 
       // 3) Hình / video
@@ -1533,6 +1582,7 @@ a { color: inherit; text-decoration: none; }
         if (el.closest('[contenteditable="true"]') || el.closest('.gms-composer')) continue;
         const r = el.getBoundingClientRect();
         if (r.width < 80 || r.height < 60) continue;
+        if (tbr && r.top >= tbr.top - 8) continue; // ảnh preview đang chờ gửi nằm ở khu vực ô soạn tin
         const half = Math.min(r.width, r.height) / 2 - 1;
         const square = Math.abs(r.width - r.height) < 6;
         if (square && (parseFloat(getComputedStyle(el).borderTopLeftRadius) >= half ||
@@ -1590,8 +1640,11 @@ a { color: inherit; text-decoration: none; }
 
     // ---------- gộp tin đã đọc + tải tin cũ hơn ----------
     // Key không gồm giờ/URL ảnh vì chúng có thể đổi giữa các lần đọc.
+    // Dùng chữ ký "mềm" (sig) để emoji / dấu câu không làm key lệch giữa các lần đọc.
     const mkey = (x) => (x.out ? 'o' : 'i') + '|' +
-      ((x.media || x.text === '[Hình ảnh / video]') ? 'M' + (x.media ? x.media.map((md) => (md.vid ? 'v' : 'p')).join('') : 'p') : (x.text || ''));
+      ((x.media || x.text === '[Hình ảnh / video]')
+        ? 'M' + (x.media ? x.media.map((md) => (md.vid ? 'v' : 'p')).join('') : 'p')
+        : sig(x.text).slice(0, 24));
     const MAX_CACHED = 500;
     GMS.msgCache = { path: null, list: [] };
     GMS.resetMsgCache = () => { GMS.msgCache = { path: null, list: [] }; };
@@ -1850,7 +1903,7 @@ a { color: inherit; text-decoration: none; }
             src: (el.currentSrc || el.src || el.poster || '').slice(0, 60),
           };
         }));
-        console.log('[GMS v1.4.2] msgs đọc được:');
+        console.log('[GMS v1.5.1] msgs đọc được:');
         console.table((GMS.msgs || []).map((x) => ({
           out: x.out, text: (x.text || '').slice(0, 40), time: x.time,
           media: x.media ? x.media.map((md) => (md.vid ? 'video' : 'img') + ':' + (md.src || '').slice(0, 30)).join(' ') : '',
