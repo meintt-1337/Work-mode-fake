@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.5.2
+// @version      1.6.0
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -27,17 +27,23 @@
  *  - Không nhúng font Roboto / Be Vietnam Pro: dùng font hệ thống.
  *  - Không có giao diện Outlook.
  *
+ * v1.6.0:
+ *  - Hiển thị tin reply dạng trích dẫn: tin được reply nằm riêng phía trên tin trả lời
+ *    (chữ xám nhỏ, có vạch bên trái), không còn lẫn thành hai tin ngang hàng.
+ *  - Sửa dòng thông báo ghim tin hiện placeholder thô "$PARTICIPANT_FIRST_NAME(...)":
+ *    thay bằng tên người đang chat.
+ *  - Sửa lỗi tin "ma": sau khi gửi, Messenger giật focus về ô soạn tin thật (đang ẩn),
+ *    khiến chữ gõ tiếp rơi vào ô thật và bị gửi nhầm / dính vào tin sau.
+ *  - Chặn ô thật nhận focus khi đang ở ô trả lời; chỉ cấp focus tạm lúc script chủ động gửi.
+ *  - Chỉ bấm nút Gửi dự phòng khi ô thật vẫn còn đúng nội dung vừa gửi; xóa ô thật chắc hơn trước khi chèn chữ.
+ *  - Hạn chế đã biết: placeholder ghim luôn được thay bằng tên người đối diện (chat nhóm hoặc
+ *    tự ghim sẽ hiện chưa chính xác); khối trích dẫn chưa hiện tên người được reply.
+ *
  * v1.5.2:
  *  - Sửa lỗi tin "ma": sau khi gửi, Messenger giật focus về ô soạn tin thật (đang ẩn),
  *    khiến chữ gõ tiếp rơi vào ô thật và bị gửi nhầm / dính vào tin sau.
  *  - Chặn ô thật nhận focus khi đang ở ô trả lời; chỉ cấp focus tạm lúc script chủ động gửi.
  *  - Chỉ bấm nút Gửi dự phòng khi ô thật vẫn còn đúng nội dung vừa gửi; xóa ô thật chắc hơn trước khi chèn chữ.
- *
- * v1.5.1:
- *  - Sửa gửi ảnh: chờ ảnh preview thật sự xuất hiện, chọn đúng input file, tránh gửi đúp.
- *  - Sửa lặp dòng khi tin có emoji (đọc alt của <img> emoji, so khớp mềm).
- *  - Bỏ dòng rác "Được mã hóa đầu cuối" bị nhận nhầm thành tin nhắn.
- *  - Enter để gửi (Shift+Enter xuống dòng), ô trả lời không đóng sau khi gửi.
  */
 (function () {
   'use strict';
@@ -476,6 +482,7 @@ a { color: inherit; text-decoration: none; }
 .gms-files:empty { display: none; }
 .gms-fchip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 10px; background: #e8eaed; border-radius: 12px; font-size: 12px; color: #1f1f1f; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .gms-fchip i { font-style: normal; cursor: pointer; padding: 0 4px; }
+.gms-qt { margin: 0 0 6px; padding: 2px 0 2px 10px; border-left: 3px solid #c4c7c5; color: #5e5e5e; font-size: 13px; line-height: 18px; max-height: 38px; overflow: hidden; }
 `;
 
   const addPageCss = (css) => {
@@ -1138,9 +1145,9 @@ a { color: inherit; text-decoration: none; }
 
     const mediaHtml = (g) => (g.media || []).map((md) =>
       `<span class="gms-media${md.vid ? ' vid' : ''}${md.vid && !md.src ? ' nopost' : ''}" data-mi="${md.i}" title="Mở bản gốc">${md.src ? `<img src="${esc(md.src)}" alt="" referrerpolicy="no-referrer">` : ''}${md.vid ? `<span class="gms-play">${ico('play')}</span>` : ''}</span>`).join('');
-
+      const quoteHtml = (q) => (q ? `<div class="gms-qt">${esc(q)}</div>` : '');
     function closedMsg(x, i, them) {
-      return `<div class="gms-msg" data-i="${i}">${avatar(x.out)}<div class="gms-msg-b"><div class="gms-msg-n">${esc(nameOf(x, them))}</div><div class="gms-msg-s">${esc((x.text || '[Hình ảnh / video]').replace(/\s+/g, ' '))}</div></div><span class="gms-msg-t">${esc(x.time)}</span><span class="gms-mstar">${ico('star_border')}</span></div>`;
+      return `<div class="gms-msg" data-i="${i}">${avatar(x.out)}<div class="gms-msg-b"><div class="gms-msg-n">${esc(nameOf(x, them))}</div><div class="gms-msg-s">${x.quote ? '↪ ' : ''}${esc((x.text || '[Hình ảnh / video]').replace(/\s+/g, ' '))}</div></div><span class="gms-msg-t">${esc(x.time)}</span><span class="gms-mstar">${ico('star_border')}</span></div>`;
     }
 
     function openMsg(group, i, them, email, prev) {
@@ -1155,7 +1162,7 @@ a { color: inherit; text-decoration: none; }
       return `<div class="gms-msg open" data-i="${i}"${prev ? ' data-fixed="1"' : ''}>${avatar(x.out)}<div class="gms-msg-b">
 <div class="gms-msg-top"><span class="gms-msg-n">${esc(nameOf(x, them))}</span><span class="gms-msg-e">&lt;${esc(mail)}&gt;</span><span class="gms-spacer"></span><span class="gms-msg-t">${esc(group[group.length - 1].time)}</span></div>
 <div class="gms-msg-to">đến ${x.out ? esc(them) : 'tôi'} ▾</div>
-<div class="gms-msg-body">${group.map((g) => `<div>${g.text ? linkify(g.text) : ''}${mediaHtml(g)}</div>`).join('')}</div>${quote}
+<div class="gms-msg-body">${group.map((g) => `<div>${quoteHtml(g.quote)}${g.text ? linkify(g.text) : ''}${mediaHtml(g)}</div>`).join('')}</div>
 </div></div>`;
     }
 
@@ -1578,7 +1585,16 @@ a { color: inherit; text-decoration: none; }
       blobCache.set(key, u);
       return u;
     }
-
+    // Messenger đôi khi để lộ placeholder chưa thay tên: $PARTICIPANT_FIRST_NAME(123456...)
+      const PLACEHOLDER_RE = /\$PARTICIPANT_[A-Z_]+\(\d+\)/g;
+      const fixPlaceholders = (s) => {
+          if (!s || !s.includes('$PARTICIPANT_')) return s;
+          const cur = GMS.state.current;
+          const name = (cur && cur.name) || 'Người dùng';
+          return s.replace(PLACEHOLDER_RE, name);
+      };
+      const QUOTE_ARIA_RE = /đến tin nhắn đã trả lời|go to replied message/i;
+      const QUOTE_HEAD_RE = /^(tin nhắn gốc|original message)\s*:?$/i;
     GMS.readMessages = (m) => {
       const cur = GMS.state.current;
       const norm = (s) => s.replace(/\/$/, '');
@@ -1591,19 +1607,28 @@ a { color: inherit; text-decoration: none; }
       // 1) Đọc chữ. Mỗi tin có thể xuất hiện 2 lần: bản "chữ ẩn" (có người gửi + giờ) và bản hiển thị.
       const acc = [];
       const plain = [];
+      const quotes = [];
       for (const b of m.querySelectorAll('.gms-bubble')) {
         if (b.closest('[contenteditable="true"]') || b.parentElement.closest('.gms-bubble')) continue;
         const r = b.getBoundingClientRect();
         if (r.width < 1) continue;
         // Bỏ các "bubble" nằm trong / sát ô soạn tin (vd. dòng "Được mã hóa đầu cuối").
         if (b.closest('.gms-composer') || (tbr && r.top >= tbr.top - 8)) continue;
+          const al = (b.closest('[aria-label]') || {}).ariaLabel || '';
+          const bl = [...b.querySelectorAll('[dir="auto"]')].filter((x) => !x.querySelector('[dir="auto"]')).map((x) => textOf(x)).filter(Boolean);
+          if (QUOTE_ARIA_RE.test(al) || (bl.length && QUOTE_HEAD_RE.test(bl[0]))) {
+              const qtext = fixPlaceholders(bl.filter((x) => !QUOTE_HEAD_RE.test(x)).join('\n'));
+              quotes.push({ top: r.top, out: r.left + r.width / 2 > mid && r.right > mr.right - mr.width * 0.25, text: qtext });
+              continue;
+          }
         const leaves = [...b.querySelectorAll('[dir="auto"]')].filter((x) => !x.querySelector('[dir="auto"]'));
         const raw = leaves.length ? leaves.map((x) => textOf(x)) : [textOf(b)];
         const lines = [];
         let who = null;
         let own = '';
         let att = false;
-        for (const x of raw) {
+        for (const rawX of raw) {
+          const x = fixPlaceholders(rawX);
           if (!x) continue;
           const mt = ACC_RE.exec(x);
           let t = x;
@@ -1678,6 +1703,15 @@ a { color: inherit; text-decoration: none; }
       }
 
       items.sort((a, b) => a.top - b.top);
+      // Gắn mỗi khối trích dẫn vào tin chữ gần nhất phía dưới, cùng phía trái/phải
+        const orphans = [];
+        for (const qt of quotes) {
+            const target = items.find((it) => typeof it.text === 'string' && it.text && !it.att &&
+                                      it.out === qt.out && it.top > qt.top - 2 && it.top - qt.top < 150);
+            if (target) target.quote = qt.text;
+            else orphans.push({ top: qt.top, out: qt.out, text: '↪ ' + qt.text });
+        }
+        if (orphans.length) { items.push(...orphans); items.sort((a, b) => a.top - b.top); }
 
       // Gắn mỗi ảnh với nhãn "tin nhắn ảnh" gần nhất phía trên nó
       const atts = items.filter((i) => i.att);
@@ -1698,7 +1732,7 @@ a { color: inherit; text-decoration: none; }
           if (!it.hasMedia) msgs.push({ out: it.out, text: '[Hình ảnh / video]', time });
         }
         else if (it.text === undefined) time = it.time;
-        else msgs.push({ out: it.out, text: it.text, time: it.own || time });
+        else msgs.push({ out: it.out, text: it.text, time: it.own || time, quote: it.quote });
       }
       return msgs;
     };
@@ -1968,7 +2002,7 @@ a { color: inherit; text-decoration: none; }
             src: (el.currentSrc || el.src || el.poster || '').slice(0, 60),
           };
         }));
-        console.log('[GMS v1.5.2] msgs đọc được:');
+        console.log('[GMS v1.6.0] msgs đọc được:');
         console.table((GMS.msgs || []).map((x) => ({
           out: x.out, text: (x.text || '').slice(0, 40), time: x.time,
           media: x.media ? x.media.map((md) => (md.vid ? 'video' : 'img') + ':' + (md.src || '').slice(0, 30)).join(' ') : '',
