@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Work Mode Fake
 // @namespace    https://github.com/meintt-1337/Work-mode-fake
-// @version      1.5.1
+// @version      1.5.2
 // @description  Khoác giao diện hộp thư Gmail lên Messenger web
 // @match        https://www.messenger.com/*
 // @match        https://www.facebook.com/*
@@ -26,6 +26,12 @@
  *  - Không có popup: dùng menu Tampermonkey (bấm icon Tampermonkey khi đang ở trang Messenger).
  *  - Không nhúng font Roboto / Be Vietnam Pro: dùng font hệ thống.
  *  - Không có giao diện Outlook.
+ *
+ * v1.5.2:
+ *  - Sửa lỗi tin "ma": sau khi gửi, Messenger giật focus về ô soạn tin thật (đang ẩn),
+ *    khiến chữ gõ tiếp rơi vào ô thật và bị gửi nhầm / dính vào tin sau.
+ *  - Chặn ô thật nhận focus khi đang ở ô trả lời; chỉ cấp focus tạm lúc script chủ động gửi.
+ *  - Chỉ bấm nút Gửi dự phòng khi ô thật vẫn còn đúng nội dung vừa gửi; xóa ô thật chắc hơn trước khi chèn chữ.
  *
  * v1.5.1:
  *  - Sửa gửi ảnh: chờ ảnh preview thật sự xuất hiện, chọn đúng input file, tránh gửi đúp.
@@ -1417,7 +1423,28 @@ a { color: inherit; text-decoration: none; }
 
     GMS.mediaEls = [];
     GMS.peek = { on: false, seen: false, at: 0 };
+      GMS.allowFocus = false;
+      const withFocus = (fn) => { GMS.allowFocus = true; try { fn(); } finally { GMS.allowFocus = false; } };
+      const mineBox = () => ui.shell && ui.shell.querySelector('#gms-reply-text');
+      const giveBack = () => {
+          const mine = mineBox();
+          if (mine && GMS.state.reply && GMS.state.mode === 'thread') mine.focus();
+      };
 
+      // Chặn Messenger (hoặc bất kỳ ai) kéo focus sang ô thật khi đang gõ ở ô trả lời
+      window.addEventListener('focusin', (e) => {
+          if (GMS.allowFocus || !GMS.active()) return;
+          const st = GMS.state;
+          if (st.mode !== 'thread' || !st.reply) return;
+          const t = e.composedPath()[0];
+          if (!t || !t.closest || (ui.shell && ui.shell.contains(t))) return;
+          const m = document.querySelector('.gms-main');
+          const ed = t.closest('[contenteditable="true"]');
+          if (!m || !ed || !m.contains(ed)) return;
+          e.stopImmediatePropagation();
+          ed.blur();
+          giveBack();
+      }, true);
     GMS.focusComposer = () => {
       const m = document.querySelector('.gms-main');
       if (m) textbox(m)?.focus();
@@ -1431,33 +1458,71 @@ a { color: inherit; text-decoration: none; }
     }
 
     // Nhấn Enter trong ô nhập thật của Messenger (có nút gửi dự phòng).
-    function submit(m, tb) {
-      const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-      tb.focus();
-      tb.dispatchEvent(new KeyboardEvent('keydown', ev));
-      tb.dispatchEvent(new KeyboardEvent('keyup', ev));
-      setTimeout(() => {
-        const btn = [...m.querySelectorAll('[aria-label]')].find((x) =>
-          /^(nhấn enter để gửi|press enter to send|gửi|send)$/i.test(x.getAttribute('aria-label')));
-        if (btn && ((tb.textContent || '').trim() || hasPending(m, tb))) btn.click();
-      }, 500);
+    function submit(m, tb, expected) {
+        const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+        tb.focus();
+        tb.dispatchEvent(new KeyboardEvent('keydown', ev));
+        tb.dispatchEvent(new KeyboardEvent('keyup', ev));
+        // Trả focus ngay về ô trả lời giả để phím gõ tiếp không lọt vào ô thật
+        const mine = GMS.ui.shell && GMS.ui.shell.querySelector('#gms-reply-text');
+        if (mine && GMS.state.reply) mine.focus();
+
+        setTimeout(() => {
+            const cur = (tb.textContent || '').trim();
+            // Chỉ bấm nút Gửi nếu ô thật vẫn còn ĐÚNG nội dung vừa gửi (hoặc còn ảnh chờ gửi)
+            const stuckText = expected && cur && same(cur, expected);
+            const stuckMedia = !expected && hasPending(m, tb);
+            if (!stuckText && !stuckMedia) return;
+            const btn = [...m.querySelectorAll('[aria-label]')].find((x) =>
+                                                                     /^(nhấn enter để gửi|press enter to send|gửi|send)$/i.test(x.getAttribute('aria-label')));
+            if (btn) btn.click();
+        }, 700);
     }
 
     // Gõ chữ vào ô nhập thật của Messenger rồi nhấn Enter.
-    GMS.sendMessage = (text) => {
-      const m = document.querySelector('.gms-main');
-      const tb = m && textbox(m);
-      if (!tb) return false;
-      tb.focus();
-      document.execCommand('selectAll', false);
-      document.execCommand('delete', false);
-      text.split('\n').forEach((line, i) => {
-        if (i) document.execCommand('insertLineBreak', false);
-        if (line) document.execCommand('insertText', false, line);
-      });
-      setTimeout(() => submit(m, tb), 80);
-      return true;
-    };
+      function clearBox(tb) {
+          tb.focus();
+          for (let i = 0; i < 3 && (tb.textContent || '').length; i++) {
+              document.execCommand('selectAll', false);
+              document.execCommand('delete', false);
+          }
+      }
+
+      function submit(m, tb, expected) {
+          const ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+          withFocus(() => {
+              tb.focus();
+              tb.dispatchEvent(new KeyboardEvent('keydown', ev));
+              tb.dispatchEvent(new KeyboardEvent('keyup', ev));
+          });
+          giveBack();
+
+          setTimeout(() => {
+              const cur = (tb.textContent || '').trim();
+              const stuckText = expected && cur && same(cur, expected);
+              const stuckMedia = !expected && hasPending(m, tb);
+              if (!stuckText && !stuckMedia) return;
+              const btn = [...m.querySelectorAll('[aria-label]')].find((x) =>
+                                                                       /^(nhấn enter để gửi|press enter to send|gửi|send)$/i.test(x.getAttribute('aria-label')));
+              if (btn) { btn.click(); giveBack(); }
+          }, 700);
+      }
+
+      GMS.sendMessage = (text) => {
+          const m = document.querySelector('.gms-main');
+          const tb = m && textbox(m);
+          if (!tb) return false;
+          withFocus(() => {
+              clearBox(tb);
+              text.split('\n').forEach((line, i) => {
+                  if (i) document.execCommand('insertLineBreak', false);
+                  if (line) document.execCommand('insertText', false, line);
+              });
+          });
+          giveBack(); // trả focus ngay, không đợi
+          setTimeout(() => submit(m, tb, text), 80);
+          return true;
+      };
 
     // Đưa tệp vào ô chọn tệp ẩn của Messenger, đợi preview xuất hiện rồi mới gửi.
     GMS.sendFiles = (files, text) => {
@@ -1903,7 +1968,7 @@ a { color: inherit; text-decoration: none; }
             src: (el.currentSrc || el.src || el.poster || '').slice(0, 60),
           };
         }));
-        console.log('[GMS v1.5.1] msgs đọc được:');
+        console.log('[GMS v1.5.2] msgs đọc được:');
         console.table((GMS.msgs || []).map((x) => ({
           out: x.out, text: (x.text || '').slice(0, 40), time: x.time,
           media: x.media ? x.media.map((md) => (md.vid ? 'video' : 'img') + ':' + (md.src || '').slice(0, 30)).join(' ') : '',
